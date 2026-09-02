@@ -1,6 +1,6 @@
 # AIMP Subsonic Plugin
 
-[English](README.md) | [Русский](README.ru.md)
+[English](README.md) | [Русский](README.ru.md) | [简体中文](README.zh.md)
 
 Native AIMP Desktop 5.40+ plugin for Subsonic-compatible music servers. It is tested primarily with Navidrome and focuses on making a remote Subsonic library feel like a normal AIMP Music Library source.
 

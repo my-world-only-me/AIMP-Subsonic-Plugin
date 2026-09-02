@@ -1,6 +1,6 @@
 # AIMP Subsonic Plugin
 
-[English](README.md) | [Русский](README.ru.md)
+[English](README.md) | [Русский](README.ru.md) | [简体中文](README.zh.md)
 
 Нативный плагин для AIMP Desktop 5.40+, который добавляет поддержку Subsonic-совместимых музыкальных серверов. Основная проверка велась с Navidrome, а цель проекта - сделать удалённую Subsonic-библиотеку похожей на обычный источник в фонотеке AIMP.
 
