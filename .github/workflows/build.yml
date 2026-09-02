@@ -1,0 +1,81 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            platform: x64
+          - arch: x86
+            platform: Win32
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache AIMP SDK
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: aimp-sdk-v540
+
+      - name: Configure
+        # No -G: let CMake pick the newest Visual Studio on the runner image.
+        run: cmake -S . -B build -A ${{ matrix.platform }}
+
+      - name: Build plugin
+        run: cmake --build build --config Release --target aimp_subsonic
+
+      - name: Build tests
+        run: cmake --build build --config Release --target aimp_subsonic_node_tests aimp_subsonic_security_tests aimp_subsonic_json_tests
+
+      - name: Run tests
+        run: |
+          build\Release\aimp_subsonic_node_tests.exe
+          build\Release\aimp_subsonic_security_tests.exe
+          build\Release\aimp_subsonic_json_tests.exe
+
+      - name: Stage artifact
+        run: |
+          New-Item -ItemType Directory -Force -Path stage\aimp_subsonic | Out-Null
+          Copy-Item build\Release\aimp_subsonic.dll stage\aimp_subsonic\
+          Copy-Item README.md, CHANGELOG.md stage\aimp_subsonic\
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aimp_subsonic-${{ matrix.arch }}
+          path: stage/
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Zip artifacts
+        run: |
+          cd artifacts
+          for dir in aimp_subsonic-*; do
+            (cd "$dir" && zip -r "../${dir}.zip" .)
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          draft: true
+          generate_release_notes: true

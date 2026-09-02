@@ -160,61 +160,264 @@ std::vector<std::string> ParseJsonStringArrayAt(const std::string& text, size_t&
     return result;
 }
 
-std::vector<std::string> ExtractObjectsForKey(const std::string& json, const std::string& key) {
-    std::vector<std::string> objects;
-    const std::string quotedKey = "\"" + key + "\"";
-    const auto keyPos = json.find(quotedKey);
-    if (keyPos == std::string::npos) {
-        return objects;
+std::optional<std::string> ExtractArray(const std::string& text, size_t start) {
+    if (start >= text.size() || text[start] != '[') {
+        return std::nullopt;
     }
-    const auto arrayStart = json.find('[', keyPos);
-    if (arrayStart == std::string::npos) {
-        const auto objectStart = json.find('{', keyPos);
-        if (objectStart != std::string::npos) {
-            if (auto object = ExtractObject(json, objectStart)) {
-                objects.push_back(*object);
+    int depth = 0;
+    bool inString = false;
+    bool escape = false;
+    for (size_t pos = start; pos < text.size(); ++pos) {
+        const char ch = text[pos];
+        if (inString) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (ch == '"') {
+            inString = true;
+        } else if (ch == '[') {
+            ++depth;
+        } else if (ch == ']') {
+            --depth;
+            if (depth == 0) {
+                return text.substr(start, pos - start + 1);
             }
         }
-        return objects;
     }
+    return std::nullopt;
+}
 
+// Skips one JSON value (string, object, array, number, or literal) starting at pos.
+bool SkipJsonValue(const std::string& text, size_t& pos) {
+    SkipWhitespace(text, pos);
+    if (pos >= text.size()) {
+        return false;
+    }
+    const char ch = text[pos];
+    if (ch == '"') {
+        return ParseJsonStringAt(text, pos).has_value();
+    }
+    if (ch == '{') {
+        const auto object = ExtractObject(text, pos);
+        if (!object) {
+            return false;
+        }
+        pos += object->size();
+        return true;
+    }
+    if (ch == '[') {
+        const auto array = ExtractArray(text, pos);
+        if (!array) {
+            return false;
+        }
+        pos += array->size();
+        return true;
+    }
+    while (pos < text.size() && text[pos] != ',' && text[pos] != '}' && text[pos] != ']' &&
+        !std::isspace(static_cast<unsigned char>(text[pos]))) {
+        ++pos;
+    }
+    return true;
+}
+
+// Finds the value position of `key` looking only at the top level of a JSON
+// object. OpenSubsonic servers such as Navidrome nest objects and arrays
+// (genres, artists, replayGain, releaseDate, ...) inside song/album entries,
+// so a whole-text scan can match a key that belongs to a nested value.
+std::optional<size_t> FindTopLevelKeyValue(const std::string& objectText, const std::string& key) {
+    size_t pos = 0;
+    SkipWhitespace(objectText, pos);
+    if (pos >= objectText.size() || objectText[pos] != '{') {
+        return std::nullopt;
+    }
+    ++pos;
+    while (pos < objectText.size()) {
+        SkipWhitespace(objectText, pos);
+        if (pos >= objectText.size() || objectText[pos] == '}') {
+            break;
+        }
+        auto parsedKey = ParseJsonStringAt(objectText, pos);
+        if (!parsedKey) {
+            break;
+        }
+        SkipWhitespace(objectText, pos);
+        if (pos >= objectText.size() || objectText[pos] != ':') {
+            break;
+        }
+        ++pos;
+        SkipWhitespace(objectText, pos);
+        if (*parsedKey == key) {
+            return pos;
+        }
+        if (!SkipJsonValue(objectText, pos)) {
+            break;
+        }
+        SkipWhitespace(objectText, pos);
+        if (pos < objectText.size() && objectText[pos] == ',') {
+            ++pos;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> GetStringField(const std::string& objectText, const std::string& key) {
+    auto valuePos = FindTopLevelKeyValue(objectText, key);
+    if (!valuePos || *valuePos >= objectText.size() || objectText[*valuePos] != '"') {
+        return std::nullopt;
+    }
+    size_t pos = *valuePos;
+    return ParseJsonStringAt(objectText, pos);
+}
+
+std::optional<int> GetIntField(const std::string& objectText, const std::string& key) {
+    auto valuePos = FindTopLevelKeyValue(objectText, key);
+    if (!valuePos) {
+        return std::nullopt;
+    }
+    try {
+        return std::stoi(objectText.substr(*valuePos));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<long long> GetInt64Field(const std::string& objectText, const std::string& key) {
+    auto valuePos = FindTopLevelKeyValue(objectText, key);
+    if (!valuePos) {
+        return std::nullopt;
+    }
+    try {
+        return std::stoll(objectText.substr(*valuePos));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<bool> GetBoolField(const std::string& objectText, const std::string& key) {
+    auto valuePos = FindTopLevelKeyValue(objectText, key);
+    if (!valuePos) {
+        return std::nullopt;
+    }
+    const auto tail = objectText.substr(*valuePos, 5);
+    if (tail.rfind("true", 0) == 0) {
+        return true;
+    }
+    if (tail.rfind("false", 0) == 0) {
+        return false;
+    }
+    return std::nullopt;
+}
+
+std::vector<std::string> GetStringArrayField(const std::string& objectText, const std::string& key) {
+    auto valuePos = FindTopLevelKeyValue(objectText, key);
+    if (!valuePos || *valuePos >= objectText.size() || objectText[*valuePos] != '[') {
+        return {};
+    }
+    size_t pos = *valuePos;
+    return ParseJsonStringArrayAt(objectText, pos);
+}
+
+void CollectObjectsFromArray(const std::string& json, size_t arrayStart, std::vector<std::string>& objects) {
     size_t pos = arrayStart + 1;
     while (pos < json.size()) {
-        const auto objectStart = json.find('{', pos);
-        const auto arrayEnd = json.find(']', pos);
-        if (objectStart == std::string::npos || (arrayEnd != std::string::npos && arrayEnd < objectStart)) {
+        SkipWhitespace(json, pos);
+        if (pos >= json.size() || json[pos] == ']') {
             break;
         }
-        auto object = ExtractObject(json, objectStart);
-        if (!object) {
+        if (json[pos] == '{') {
+            auto object = ExtractObject(json, pos);
+            if (!object) {
+                break;
+            }
+            objects.push_back(*object);
+            pos += object->size();
+        } else if (!SkipJsonValue(json, pos)) {
             break;
         }
-        objects.push_back(*object);
-        pos = objectStart + object->size();
+        SkipWhitespace(json, pos);
+        if (pos < json.size() && json[pos] == ',') {
+            ++pos;
+        }
+    }
+}
+
+// Collects the objects stored under every occurrence of `key` whose value is
+// an object or an array of objects. Servers such as Navidrome repeat the same
+// key several times, for example one "artist" array per index letter in
+// getArtists, so reading only the first occurrence drops most of the library.
+std::vector<std::string> ExtractObjectsForKey(const std::string& json, const std::string& key) {
+    std::vector<std::string> objects;
+    size_t pos = 0;
+    while ((pos = json.find('"', pos)) != std::string::npos) {
+        size_t cursor = pos;
+        auto parsedKey = ParseJsonStringAt(json, cursor);
+        if (!parsedKey) {
+            ++pos;
+            continue;
+        }
+        SkipWhitespace(json, cursor);
+        if (cursor >= json.size() || json[cursor] != ':') {
+            pos = cursor > pos ? cursor : pos + 1;
+            continue;
+        }
+        ++cursor;
+        SkipWhitespace(json, cursor);
+        if (cursor >= json.size()) {
+            break;
+        }
+        if (*parsedKey != key) {
+            pos = cursor;
+            continue;
+        }
+        if (json[cursor] == '{') {
+            if (auto object = ExtractObject(json, cursor)) {
+                objects.push_back(*object);
+                pos = cursor + object->size();
+                continue;
+            }
+        } else if (json[cursor] == '[') {
+            const size_t before = objects.size();
+            CollectObjectsFromArray(json, cursor, objects);
+            if (auto array = ExtractArray(json, cursor)) {
+                pos = cursor + array->size();
+                continue;
+            }
+            if (objects.size() > before) {
+                pos = cursor + 1;
+                continue;
+            }
+        }
+        pos = cursor;
     }
     return objects;
 }
 
 TrackInfo ParseTrackObject(const std::string& object) {
     TrackInfo track;
-    track.id = Utf8ToWideString(JsonGetString(object, "id").value_or(""));
-    track.title = Utf8ToWideString(JsonGetString(object, "title").value_or(""));
-    track.artist = Utf8ToWideString(JsonGetString(object, "artist").value_or(""));
-    track.album = Utf8ToWideString(JsonGetString(object, "album").value_or(""));
-    track.albumArtist = Utf8ToWideString(JsonGetString(object, "albumArtist").value_or(""));
-    track.artistId = Utf8ToWideString(JsonGetString(object, "artistId").value_or(""));
-    track.albumId = Utf8ToWideString(JsonGetString(object, "albumId").value_or(""));
-    track.coverArt = Utf8ToWideString(JsonGetString(object, "coverArt").value_or(""));
-    track.genre = Utf8ToWideString(JsonGetString(object, "genre").value_or(""));
-    track.playlistId = Utf8ToWideString(JsonGetString(object, "playlistId").value_or(""));
-    track.suffix = Utf8ToWideString(JsonGetString(object, "suffix").value_or("mp3"));
-    track.durationSeconds = JsonGetInt(object, "duration").value_or(0);
-    track.year = JsonGetInt(object, "year").value_or(0);
-    track.trackNumber = JsonGetInt(object, "track").value_or(0);
-    track.discNumber = JsonGetInt(object, "discNumber").value_or(0);
-    track.rating = JsonGetInt(object, "userRating").value_or(0);
-    track.size = JsonGetInt64(object, "size").value_or(0);
-    track.starred = JsonGetString(object, "starred").has_value() || JsonGetBool(object, "starred").value_or(false);
+    track.id = Utf8ToWideString(GetStringField(object, "id").value_or(""));
+    track.title = Utf8ToWideString(GetStringField(object, "title").value_or(""));
+    track.artist = Utf8ToWideString(GetStringField(object, "artist").value_or(""));
+    track.album = Utf8ToWideString(GetStringField(object, "album").value_or(""));
+    track.albumArtist = Utf8ToWideString(GetStringField(object, "albumArtist").value_or(""));
+    track.artistId = Utf8ToWideString(GetStringField(object, "artistId").value_or(""));
+    track.albumId = Utf8ToWideString(GetStringField(object, "albumId").value_or(""));
+    track.coverArt = Utf8ToWideString(GetStringField(object, "coverArt").value_or(""));
+    track.genre = Utf8ToWideString(GetStringField(object, "genre").value_or(""));
+    track.playlistId = Utf8ToWideString(GetStringField(object, "playlistId").value_or(""));
+    track.suffix = Utf8ToWideString(GetStringField(object, "suffix").value_or("mp3"));
+    track.durationSeconds = GetIntField(object, "duration").value_or(0);
+    track.year = GetIntField(object, "year").value_or(0);
+    track.trackNumber = GetIntField(object, "track").value_or(0);
+    track.discNumber = GetIntField(object, "discNumber").value_or(0);
+    track.rating = GetIntField(object, "userRating").value_or(0);
+    track.size = GetInt64Field(object, "size").value_or(0);
+    track.starred = GetStringField(object, "starred").has_value() || GetBoolField(object, "starred").value_or(false);
     return track;
 }
 
@@ -300,15 +503,15 @@ std::vector<PlaylistInfo> ParsePlaylistsForKey(const std::string& json, const st
     std::vector<PlaylistInfo> playlists;
     for (const auto& object : ExtractObjectsForKey(json, key)) {
         PlaylistInfo playlist;
-        playlist.id = Utf8ToWideString(JsonGetString(object, "id").value_or(""));
-        playlist.name = Utf8ToWideString(JsonGetString(object, "name").value_or(""));
-        playlist.owner = Utf8ToWideString(JsonGetString(object, "owner").value_or(""));
-        for (const auto& id : JsonGetStringArray(object, "songIds")) {
+        playlist.id = Utf8ToWideString(GetStringField(object, "id").value_or(""));
+        playlist.name = Utf8ToWideString(GetStringField(object, "name").value_or(""));
+        playlist.owner = Utf8ToWideString(GetStringField(object, "owner").value_or(""));
+        for (const auto& id : GetStringArrayField(object, "songIds")) {
             playlist.songIds.push_back(Utf8ToWideString(id));
         }
-        playlist.songCount = JsonGetInt(object, "songCount").value_or(0);
-        playlist.durationSeconds = JsonGetInt(object, "duration").value_or(0);
-        playlist.isPublic = JsonGetBool(object, "public").value_or(false);
+        playlist.songCount = GetIntField(object, "songCount").value_or(0);
+        playlist.durationSeconds = GetIntField(object, "duration").value_or(0);
+        playlist.isPublic = GetBoolField(object, "public").value_or(false);
         if (!playlist.id.empty()) {
             playlists.push_back(playlist);
         }
@@ -324,13 +527,13 @@ std::vector<ArtistInfo> ParseArtistsForKey(const std::string& json, const std::s
     std::vector<ArtistInfo> artists;
     for (const auto& object : ExtractObjectsForKey(json, key)) {
         ArtistInfo artist;
-        artist.id = Utf8ToWideString(JsonGetString(object, "id").value_or(""));
-        artist.name = Utf8ToWideString(JsonGetString(object, "name").value_or(""));
-        artist.coverArt = Utf8ToWideString(JsonGetString(object, "coverArt").value_or(""));
-        for (const auto& id : JsonGetStringArray(object, "albumIds")) {
+        artist.id = Utf8ToWideString(GetStringField(object, "id").value_or(""));
+        artist.name = Utf8ToWideString(GetStringField(object, "name").value_or(""));
+        artist.coverArt = Utf8ToWideString(GetStringField(object, "coverArt").value_or(""));
+        for (const auto& id : GetStringArrayField(object, "albumIds")) {
             artist.albumIds.push_back(Utf8ToWideString(id));
         }
-        artist.albumCount = JsonGetInt(object, "albumCount").value_or(0);
+        artist.albumCount = GetIntField(object, "albumCount").value_or(0);
         if (!artist.id.empty()) {
             artists.push_back(artist);
         }
@@ -342,18 +545,20 @@ std::vector<AlbumInfo> ParseAlbums(const std::string& json, const std::string& k
     std::vector<AlbumInfo> albums;
     for (const auto& object : ExtractObjectsForKey(json, key)) {
         AlbumInfo album;
-        album.id = Utf8ToWideString(JsonGetString(object, "id").value_or(""));
-        album.name = Utf8ToWideString(JsonGetString(object, "name").value_or(""));
-        album.artist = Utf8ToWideString(JsonGetString(object, "artist").value_or(""));
-        album.artistId = Utf8ToWideString(JsonGetString(object, "artistId").value_or(""));
-        album.coverArt = Utf8ToWideString(JsonGetString(object, "coverArt").value_or(""));
-        album.genre = Utf8ToWideString(JsonGetString(object, "genre").value_or(""));
-        for (const auto& id : JsonGetStringArray(object, "songIds")) {
+        album.id = Utf8ToWideString(GetStringField(object, "id").value_or(""));
+        album.name = Utf8ToWideString(GetStringField(object, "name")
+            .value_or(GetStringField(object, "title")
+            .value_or(GetStringField(object, "album").value_or(""))));
+        album.artist = Utf8ToWideString(GetStringField(object, "artist").value_or(""));
+        album.artistId = Utf8ToWideString(GetStringField(object, "artistId").value_or(""));
+        album.coverArt = Utf8ToWideString(GetStringField(object, "coverArt").value_or(""));
+        album.genre = Utf8ToWideString(GetStringField(object, "genre").value_or(""));
+        for (const auto& id : GetStringArrayField(object, "songIds")) {
             album.songIds.push_back(Utf8ToWideString(id));
         }
-        album.songCount = JsonGetInt(object, "songCount").value_or(0);
-        album.durationSeconds = JsonGetInt(object, "duration").value_or(0);
-        album.year = JsonGetInt(object, "year").value_or(0);
+        album.songCount = GetIntField(object, "songCount").value_or(0);
+        album.durationSeconds = GetIntField(object, "duration").value_or(0);
+        album.year = GetIntField(object, "year").value_or(0);
         if (!album.id.empty()) {
             albums.push_back(album);
         }

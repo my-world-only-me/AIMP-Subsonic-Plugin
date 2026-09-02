@@ -27,6 +27,8 @@ class SubsonicOptionsFrame;
 class PlaylistMetadataListener;
 class MetadataIndexTask;
 class MetadataIndexCompletionTask;
+class PlaylistImportTask;
+class PlaylistImportApplyTask;
 
 enum class PlaybackMode {
     DirectUrl,
@@ -35,7 +37,13 @@ enum class PlaybackMode {
 enum class MenuCommand {
     CopySelectedStreamUrls,
     RefreshMetadataCache,
+    ImportServerPlaylists,
     OpenSettings,
+};
+
+struct ServerPlaylistSnapshot {
+    PlaylistInfo playlist;
+    std::vector<TrackInfo> tracks;
 };
 
 class AimpSubsonicPlugin final : public IAIMPPlugin, public IAIMPMessageHook, public ComBase {
@@ -56,6 +64,7 @@ public:
 
     void CopySelectedStreamUrls();
     void RefreshMetadataCache();
+    void ImportServerPlaylists(bool interactive = true);
     void OpenSettings();
     void ApplyConfigFromOptions(const SubsonicConfig& config);
     bool TestSubsonicConfig(const SubsonicConfig& config) const;
@@ -64,6 +73,8 @@ private:
     friend class PlaylistMetadataListener;
     friend class MetadataIndexTask;
     friend class MetadataIndexCompletionTask;
+    friend class PlaylistImportTask;
+    friend class PlaylistImportApplyTask;
 
     void ApplyConfig(const SubsonicConfig& config);
     HRESULT RegisterMenu();
@@ -99,6 +110,11 @@ private:
     void CompleteMetadataIndexTask(const MetadataIndexBuildResult& result, uint64_t generation);
     void FinishMetadataIndexTask(uint64_t generation);
     void CancelMetadataIndexTask();
+    void RunPlaylistImportTask(IAIMPTaskOwner* owner, uint64_t generation, bool interactive);
+    void ApplyServerPlaylists(const std::vector<ServerPlaylistSnapshot>& snapshots, uint64_t generation, bool interactive);
+    void FinishPlaylistImportTask(uint64_t generation);
+    void CancelPlaylistImportTask();
+    void RefreshImportedPlaylistsAtStartup();
 
     AimpCoreRef core_;
     std::unique_ptr<SubsonicClient> client_;
@@ -118,6 +134,12 @@ private:
     TTaskHandle metadataIndexTask_{0};
     MetadataIndexTask* metadataIndexTaskObject_{nullptr};
     uint64_t metadataIndexGeneration_{0};
+    std::mutex playlistImportMutex_;
+    bool playlistImportRunning_{false};
+    TTaskHandle playlistImportTask_{0};
+    PlaylistImportTask* playlistImportTaskObject_{nullptr};
+    uint64_t playlistImportGeneration_{0};
+    bool startupPlaylistSyncDone_{false};
     std::vector<IUnknown*> registeredExtensions_;
     std::vector<IAIMPPlaylist*> metadataWatchedPlaylists_;
 };

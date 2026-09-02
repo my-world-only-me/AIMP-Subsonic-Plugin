@@ -281,6 +281,72 @@ std::vector<TrackInfo> SubsonicRepository::SearchSongs(const std::wstring& query
     return tracks;
 }
 
+std::vector<TrackInfo> SubsonicRepository::SearchAllSongs(const std::wstring& query) const {
+    std::vector<TrackInfo> all;
+    if (!client_) {
+        return all;
+    }
+    const int pageSize = LibraryPageSize();
+    std::unordered_set<std::wstring> seenIds;
+    int offset = 0;
+    while (true) {
+        const auto page = client_->SearchSongs(query, pageSize, offset);
+        if (page.empty()) {
+            break;
+        }
+        int newTracks = 0;
+        for (const auto& track : page) {
+            if (!track.id.empty() && seenIds.insert(track.id).second) {
+                all.push_back(track);
+                ++newTracks;
+            }
+        }
+        if (static_cast<int>(page.size()) < pageSize || newTracks == 0) {
+            break;
+        }
+        offset += pageSize;
+    }
+    LogInfo(L"SearchAllSongs completed. Query='" + query +
+        L"', Tracks=" + std::to_wstring(all.size()));
+    if (query.empty() && !all.empty()) {
+        RememberAllTracks(all);
+    } else {
+        RememberTracks(all);
+    }
+    return all;
+}
+
+std::vector<AlbumInfo> SubsonicRepository::GetAllAlbums(const std::wstring& type) const {
+    std::vector<AlbumInfo> all;
+    if (!client_) {
+        return all;
+    }
+    const int pageSize = LibraryPageSize();
+    std::unordered_set<std::wstring> seenIds;
+    int offset = 0;
+    while (true) {
+        const auto page = client_->GetAlbumList2(type, pageSize, offset);
+        if (page.empty()) {
+            break;
+        }
+        int newAlbums = 0;
+        for (const auto& album : page) {
+            if (!album.id.empty() && seenIds.insert(album.id).second) {
+                all.push_back(album);
+                ++newAlbums;
+            }
+        }
+        if (static_cast<int>(page.size()) < pageSize || newAlbums == 0) {
+            break;
+        }
+        offset += pageSize;
+    }
+    LogInfo(L"GetAllAlbums completed. Type=" + type +
+        L", Albums=" + std::to_wstring(all.size()));
+    RememberAlbums(all);
+    return all;
+}
+
 MetadataIndexBuildResult SubsonicRepository::BuildMetadataIndex(const std::function<bool()>& shouldCancel) const {
     MetadataIndexBuildResult result;
     if (!client_) {
@@ -447,6 +513,69 @@ MetadataIndexBuildResult SubsonicRepository::BuildMetadataIndex(const std::funct
         L", CachedAlbums=" + std::to_wstring(result.cachedAlbums) +
         L", CachedPlaylists=" + std::to_wstring(result.cachedPlaylists));
     return result;
+}
+
+std::filesystem::path SubsonicRepository::PlaylistLinksPath() const {
+    const std::wstring key = client_ ? client_->MetadataCacheKey() : std::wstring(L"default");
+    return MetadataCacheRoot() / (key + L".playlists.json");
+}
+
+std::map<std::wstring, std::wstring> SubsonicRepository::GetPlaylistLinks() const {
+    std::map<std::wstring, std::wstring> links;
+    std::ifstream file(PlaylistLinksPath(), std::ios::binary);
+    if (!file) {
+        return links;
+    }
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    const std::string text = buffer.str();
+    const auto serverIds = JsonGetStringArray(text, "serverIds");
+    const auto aimpIds = JsonGetStringArray(text, "aimpIds");
+    const size_t count = std::min(serverIds.size(), aimpIds.size());
+    for (size_t i = 0; i < count; ++i) {
+        if (!serverIds[i].empty() && !aimpIds[i].empty()) {
+            links[Utf8ToWideString(serverIds[i])] = Utf8ToWideString(aimpIds[i]);
+        }
+    }
+    return links;
+}
+
+void SubsonicRepository::SetPlaylistLink(const std::wstring& serverPlaylistId, const std::wstring& aimpPlaylistId) const {
+    if (serverPlaylistId.empty() || aimpPlaylistId.empty()) {
+        return;
+    }
+    auto links = GetPlaylistLinks();
+    const auto it = links.find(serverPlaylistId);
+    if (it != links.end() && it->second == aimpPlaylistId) {
+        return;
+    }
+    links[serverPlaylistId] = aimpPlaylistId;
+
+    const auto path = PlaylistLinksPath();
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec) {
+        LogInfo(L"Subsonic playlist links directory creation failed: " + Utf8ToWideString(ec.message()));
+        return;
+    }
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        LogInfo(L"Subsonic playlist links save failed: cannot open file.");
+        return;
+    }
+    std::vector<std::wstring> serverIds;
+    std::vector<std::wstring> aimpIds;
+    serverIds.reserve(links.size());
+    aimpIds.reserve(links.size());
+    for (const auto& [serverId, aimpId] : links) {
+        serverIds.push_back(serverId);
+        aimpIds.push_back(aimpId);
+    }
+    out << "{\"version\":1,";
+    AppendJsonStringArray(out, "serverIds", serverIds);
+    AppendJsonStringArray(out, "aimpIds", aimpIds, false);
+    out << "}";
+    LogInfo(L"Subsonic playlist links saved. Links=" + std::to_wstring(links.size()));
 }
 
 bool SubsonicRepository::Scrobble(const std::wstring& songId, bool submission) const {

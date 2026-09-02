@@ -18,6 +18,7 @@ This `main` branch is the stable online playback line. Direct Subsonic stream UR
 - Background `Build / Refresh Metadata Index` command.
 - Quick search in the central Music Library table.
 - Server playlists are browsable in the Music Library; their tracks can be played or added through normal AIMP actions.
+- `Import Server Playlists` command: server playlists become real AIMP playlists in the Playlist Manager (one-way sync, refreshed on startup).
 - Subsonic now-playing and played scrobble events.
 - Cover art provider using `getCoverArt`, with a local image cache.
 - Settings page in AIMP Options: connection, playback, library, TLS, diagnostics.
@@ -48,7 +49,7 @@ This `main` branch is the stable online playback line. Direct Subsonic stream UR
 
 - Offline audio playback/cache.
 - `subsonic://` virtual cache playback.
-- Server-side playlist import, create/update/delete, and automatic playlist sync.
+- Writing playlist changes back to the server (create/update/delete); the Playlist Manager import is one-way, server to AIMP.
 - Podcasts, video, jukebox, chat, bookmarks, and OpenSubsonic-only extensions.
 
 ## Build
@@ -73,9 +74,10 @@ cmake --build build --config Release --target aimp_subsonic
 Dry tests:
 
 ```powershell
-cmake --build build --config Release --target aimp_subsonic_node_tests aimp_subsonic_security_tests
+cmake --build build --config Release --target aimp_subsonic_node_tests aimp_subsonic_security_tests aimp_subsonic_json_tests
 build\Release\aimp_subsonic_node_tests.exe
 build\Release\aimp_subsonic_security_tests.exe
+build\Release\aimp_subsonic_json_tests.exe
 ```
 
 For 32-bit AIMP, configure with `-A Win32`.
@@ -106,9 +108,15 @@ Useful defaults:
 
 - Stream format: `mp3`
 - Max bitrate: `320`
-- Library page size: `500`
+- Library page size: `500` (per-request page size for server calls; listings paginate until the full library is loaded)
 - Debug logging: off
 - Allow self-signed HTTPS certificates: off
+
+## Navidrome Notes
+
+- The plugin understands Navidrome's OpenSubsonic responses, including letter-grouped artist indexes and nested entry fields such as `genres`, `artists`, `replayGain`, and `releaseDate`.
+- Stream format `mp3` asks the server to transcode, which requires ffmpeg on the Navidrome host. If your Navidrome runs without ffmpeg (or you want the original files bit-perfect), set the stream format to `raw`; the plugin then requests `format=raw` and skips `maxBitRate`. AIMP plays FLAC/OGG/Opus natively.
+- Token authentication (`t`/`s`) is used, so the plain password is never sent in requests; Navidrome supports this out of the box.
 
 Use the self-signed certificate option only for a trusted private server. It disables TLS certificate validation for the plugin's own WinHTTP requests. Direct playback URLs are handed to AIMP, so AIMP's own network stack may still apply its own TLS behavior.
 

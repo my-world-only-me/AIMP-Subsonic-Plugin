@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <filesystem>
@@ -55,7 +56,14 @@ public:
     std::vector<PlaylistInfo> GetPlaylists() const;
     std::vector<TrackInfo> GetPlaylistTracks(const std::wstring& playlistId) const;
     std::vector<TrackInfo> SearchSongs(const std::wstring& query, int count, int offset = 0) const;
+    std::vector<TrackInfo> SearchAllSongs(const std::wstring& query) const;
+    std::vector<AlbumInfo> GetAllAlbums(const std::wstring& type) const;
     MetadataIndexBuildResult BuildMetadataIndex(const std::function<bool()>& shouldCancel = {}) const;
+
+    // Server playlist id -> AIMP playlist id links for the Playlist Manager
+    // import. Stored per server/account next to the metadata cache.
+    std::map<std::wstring, std::wstring> GetPlaylistLinks() const;
+    void SetPlaylistLink(const std::wstring& serverPlaylistId, const std::wstring& aimpPlaylistId) const;
 
     bool Scrobble(const std::wstring& songId, bool submission) const;
 
@@ -97,6 +105,7 @@ private:
     bool RememberPlaylistLocked(const PlaylistInfo& playlist) const;
     bool RememberArtistLocked(const ArtistInfo& artist) const;
     bool RememberAlbumLocked(const AlbumInfo& album) const;
+    std::filesystem::path PlaylistLinksPath() const;
     std::vector<TrackInfo> TracksByIdsLocked(const std::vector<std::wstring>& ids, int limit) const;
     std::vector<AlbumInfo> AlbumsByIdsLocked(const std::vector<std::wstring>& ids, int limit) const;
     std::filesystem::path MetadataCachePath() const;

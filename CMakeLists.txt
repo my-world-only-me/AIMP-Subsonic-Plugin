@@ -34,10 +34,13 @@ if((NOT AIMP_SDK_DIR OR NOT EXISTS "${AIMP_SDK_DIR}/Sources/Cpp/apiPlugin.h") AN
   set(_aimp_sdk_extract "${CMAKE_BINARY_DIR}/_deps/aimp_sdk_v540")
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_deps")
   message(STATUS "Downloading AIMP SDK v5.40...")
+  # aimp.ru republishes the SDK zip in place from time to time; when the hash
+  # check fails with a consistent "actual" value across machines, verify the
+  # archive still contains Sources/Cpp/apiPlugin.h and update the pin.
   file(DOWNLOAD
     "https://aimp.ru/?do=download.file&id=15"
     "${_aimp_sdk_zip}"
-    EXPECTED_HASH SHA256=72110c0b7c037c4346baae787de542164ba4eea4f0e874fcb9fb9aebc6c56095
+    EXPECTED_HASH SHA256=7f880c935fccd486b8fe12fa452617e630411a5adfdcac7b07d9a9bdaa5a2b63
     SHOW_PROGRESS
   )
   file(ARCHIVE_EXTRACT INPUT "${_aimp_sdk_zip}" DESTINATION "${_aimp_sdk_extract}")
@@ -115,6 +118,24 @@ target_include_directories(aimp_subsonic_node_tests PRIVATE
 
 if(MSVC)
   target_compile_options(aimp_subsonic_node_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
+endif()
+
+add_executable(aimp_subsonic_json_tests EXCLUDE_FROM_ALL
+  tests/SimpleJsonNavidromeTests.cpp
+  src/SimpleJson.cpp
+  src/Url.cpp
+)
+
+target_include_directories(aimp_subsonic_json_tests PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
+target_link_libraries(aimp_subsonic_json_tests PRIVATE
+  advapi32
+)
+
+if(MSVC)
+  target_compile_options(aimp_subsonic_json_tests PRIVATE /W4 /permissive- /EHsc)
 endif()
 
 add_executable(aimp_subsonic_security_tests EXCLUDE_FROM_ALL

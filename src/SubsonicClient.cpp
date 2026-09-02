@@ -403,6 +403,12 @@ bool SubsonicClient::DownloadCoverArtToFile(const std::wstring& coverArtId, cons
 
 std::wstring SubsonicClient::BuildStreamUrl(const std::wstring& id) const {
     const std::wstring format = config_.streamFormat.empty() ? L"mp3" : config_.streamFormat;
+    if (_wcsicmp(format.c_str(), L"raw") == 0) {
+        // format=raw asks the server to skip transcoding entirely. Navidrome
+        // honors it even when no transcoder (ffmpeg) is installed, so do not
+        // send maxBitRate, which would force a transcoding decision.
+        return ApiUrl(L"stream", L"id=" + UrlEncode(id) + L"&format=raw");
+    }
     const int maxBitRate = config_.maxBitRate > 0 ? config_.maxBitRate : 320;
     return ApiUrl(L"stream",
         L"id=" + UrlEncode(id) +

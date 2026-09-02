@@ -1317,23 +1317,23 @@ std::vector<SubsonicMusicLibraryStorage::LibraryRow> SubsonicMusicLibraryStorage
     const bool hasSearch = !SplitSearchTokens(searchText).empty();
 
     if (EqualsIgnoreCase(effectiveNode, kTokenFavorites) || EqualsIgnoreCase(effectiveNode, FavoritesRootPath())) {
-        tracks = repository_->GetCachedStarredTracks(repository_->LibraryPageSize());
+        tracks = repository_->GetCachedStarredTracks();
         if (tracks.empty()) {
             tracks = repository_->GetStarredSongs();
         } else {
             LogInfo(L"MusicLibrary Favorites served from metadata cache. Tracks=" + std::to_wstring(tracks.size()));
         }
     } else if (EqualsIgnoreCase(effectiveNode, kTokenTracks) || EqualsIgnoreCase(effectiveNode, TracksRootPath())) {
-        tracks = repository_->GetCachedTracks(repository_->LibraryPageSize());
+        tracks = repository_->GetCachedTracks();
         const bool tracksFromCache = !tracks.empty();
         if (!tracks.empty()) {
             LogInfo(L"MusicLibrary Tracks served from metadata cache. Tracks=" + std::to_wstring(tracks.size()) +
                 L", CachedTotal=" + std::to_wstring(repository_->CachedTrackCount()));
         } else {
-            tracks = repository_->SearchSongs(L"", repository_->LibraryPageSize());
+            tracks = repository_->SearchAllSongs(L"");
         }
-        if (!tracksFromCache && (tracks.empty() || static_cast<int>(tracks.size()) < repository_->LibraryPageSize())) {
-            auto scannedTracks = LoadTracksFromAlbumScan(repository_->LibraryPageSize());
+        if (!tracksFromCache && tracks.empty()) {
+            auto scannedTracks = LoadTracksFromAlbumScan(0);
             if (scannedTracks.size() > tracks.size()) {
                 LogInfo(L"MusicLibrary Tracks used album scan fallback. SearchRows=" +
                     std::to_wstring(tracks.size()) +
@@ -1344,7 +1344,7 @@ std::vector<SubsonicMusicLibraryStorage::LibraryRow> SubsonicMusicLibraryStorage
         if (hasSearch) {
             auto filteredTracks = FilterTracksBySearch(tracks, searchText);
             if (filteredTracks.empty()) {
-                auto serverTracks = repository_->SearchSongs(searchText, repository_->LibraryPageSize());
+                auto serverTracks = repository_->SearchAllSongs(searchText);
                 if (!serverTracks.empty()) {
                     LogInfo(L"MusicLibrary Tracks search used server search3 fallback. Search='" + searchText +
                         L"', ServerRows=" + std::to_wstring(serverTracks.size()));
@@ -1362,7 +1362,7 @@ std::vector<SubsonicMusicLibraryStorage::LibraryRow> SubsonicMusicLibraryStorage
             ? StripPrefix(effectiveNode, kTokenPlaylistPrefix)
             : ResolveNodeId(playlistNodeIndex_, effectiveNode);
         if (!playlistId.empty()) {
-            tracks = repository_->GetCachedPlaylistTracks(playlistId, repository_->LibraryPageSize());
+            tracks = repository_->GetCachedPlaylistTracks(playlistId);
             if (tracks.empty()) {
                 tracks = repository_->GetPlaylistTracks(playlistId);
             } else {
@@ -1380,7 +1380,7 @@ std::vector<SubsonicMusicLibraryStorage::LibraryRow> SubsonicMusicLibraryStorage
             ? StripPrefix(effectiveNode, kTokenAlbumPrefix)
             : ResolveNodeId(albumNodeIndex_, effectiveNode);
         if (!albumId.empty()) {
-            tracks = repository_->GetCachedAlbumTracks(albumId, repository_->LibraryPageSize());
+            tracks = repository_->GetCachedAlbumTracks(albumId);
             if (tracks.empty()) {
                 tracks = repository_->GetAlbumTracks(albumId);
             } else {
@@ -1395,7 +1395,7 @@ std::vector<SubsonicMusicLibraryStorage::LibraryRow> SubsonicMusicLibraryStorage
         const std::wstring artistId = StartsWithIgnoreCase(effectiveNode, kTokenArtistPrefix)
             ? StripPrefix(effectiveNode, kTokenArtistPrefix)
             : ResolveNodeId(artistNodeIndex_, effectiveNode);
-        tracks = repository_->GetCachedArtistTracks(artistId, repository_->LibraryPageSize());
+        tracks = repository_->GetCachedArtistTracks(artistId);
         if (!tracks.empty()) {
             LogInfo(L"MusicLibrary artist served from metadata cache. ArtistId=" + artistId +
                 L", Tracks=" + std::to_wstring(tracks.size()));
@@ -1455,18 +1455,16 @@ std::vector<SubsonicMusicLibraryStorage::LibraryRow> SubsonicMusicLibraryStorage
 
 std::vector<TrackInfo> SubsonicMusicLibraryStorage::LoadTracksFromAlbumScan(int maxTracks) {
     std::vector<TrackInfo> tracks;
-    if (!repository_ || maxTracks <= 0) {
+    if (!repository_) {
         return tracks;
     }
 
-    const int target = std::clamp(maxTracks, 1, 500);
-    const int albumPageSize = std::clamp(std::min(repository_->LibraryPageSize(), 50), 1, 50);
-    const auto albums = repository_->GetAlbumList2(L"alphabeticalByArtist", albumPageSize, 0);
+    const auto albums = repository_->GetAllAlbums(L"alphabeticalByArtist");
     for (const auto& album : albums) {
         auto albumTracks = repository_->GetAlbumTracks(album.id);
         for (auto& track : albumTracks) {
             tracks.push_back(std::move(track));
-            if (static_cast<int>(tracks.size()) >= target) {
+            if (maxTracks > 0 && static_cast<int>(tracks.size()) >= maxTracks) {
                 LogInfo(L"MusicLibrary album scan reached target rows: " + std::to_wstring(tracks.size()));
                 return tracks;
             }
@@ -1546,9 +1544,9 @@ std::vector<AlbumInfo> SubsonicMusicLibraryStorage::LoadAlbums() {
     if (!repository_) {
         return {};
     }
-    auto albums = repository_->GetCachedAlbums(repository_->LibraryPageSize());
+    auto albums = repository_->GetCachedAlbums();
     if (albums.empty()) {
-        albums = repository_->GetAlbumList2(L"alphabeticalByArtist", repository_->LibraryPageSize(), 0);
+        albums = repository_->GetAllAlbums(L"alphabeticalByArtist");
     } else {
         LogInfo(L"MusicLibrary albums served from metadata cache. Albums=" + std::to_wstring(albums.size()) +
             L", CachedTotal=" + std::to_wstring(repository_->CachedAlbumCount()));

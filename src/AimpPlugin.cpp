@@ -97,6 +97,38 @@ HRESULT SetPlaylistItemString(IAIMPCore* core, IAIMPPlaylistItem* item, int prop
     return hr;
 }
 
+std::wstring GetPlaylistPropertyString(IAIMPPlaylist* playlist, int propId) {
+    std::wstring result;
+    IAIMPPropertyList* props = nullptr;
+    if (playlist && SUCCEEDED(playlist->QueryInterface(IID_IAIMPPropertyList, reinterpret_cast<void**>(&props))) && props) {
+        IAIMPString* value = nullptr;
+        if (SUCCEEDED(props->GetValueAsObject(propId, IID_IAIMPString, reinterpret_cast<void**>(&value))) && value) {
+            result = FromAimpString(value);
+            value->Release();
+        }
+        props->Release();
+    }
+    return result;
+}
+
+HRESULT SetPlaylistPropertyString(IAIMPCore* core, IAIMPPlaylist* playlist, int propId, const std::wstring& value) {
+    if (!playlist || value.empty()) {
+        return S_OK;
+    }
+    IAIMPPropertyList* props = nullptr;
+    if (FAILED(playlist->QueryInterface(IID_IAIMPPropertyList, reinterpret_cast<void**>(&props))) || !props) {
+        return E_FAIL;
+    }
+    IAIMPString* str = MakeAimpString(core, value);
+    HRESULT hr = E_FAIL;
+    if (str) {
+        hr = props->SetValueAsObject(propId, str);
+        str->Release();
+    }
+    props->Release();
+    return hr;
+}
+
 bool CopyTextToClipboard(const std::wstring& text) {
     if (text.empty() || !OpenClipboard(nullptr)) {
         return false;
@@ -330,6 +362,96 @@ private:
     uint64_t generation_;
 };
 
+class PlaylistImportTask final : public IAIMPTask, public ComBase {
+public:
+    PlaylistImportTask(AimpSubsonicPlugin* plugin, uint64_t generation, bool interactive)
+        : plugin_(plugin), generation_(generation), interactive_(interactive) {
+        if (plugin_) {
+            plugin_->AddRef();
+        }
+    }
+
+    ~PlaylistImportTask() override {
+        if (plugin_) {
+            plugin_->Release();
+        }
+    }
+
+    HRESULT WINAPI QueryInterface(REFIID riid, void** ppvObject) override {
+        if (!ppvObject) {
+            return E_POINTER;
+        }
+        *ppvObject = nullptr;
+        if (riid == IID_IUnknown || riid == IID_IAIMPTask) {
+            *ppvObject = static_cast<IAIMPTask*>(this);
+        } else {
+            return E_NOINTERFACE;
+        }
+        AddRef();
+        return S_OK;
+    }
+
+    ULONG WINAPI AddRef() override { return AddRefImpl(); }
+    ULONG WINAPI Release() override { return ReleaseImpl(); }
+
+    void WINAPI Execute(IAIMPTaskOwner* Owner) override {
+        if (plugin_) {
+            plugin_->RunPlaylistImportTask(Owner, generation_, interactive_);
+        }
+    }
+
+private:
+    AimpSubsonicPlugin* plugin_;
+    uint64_t generation_;
+    bool interactive_;
+};
+
+class PlaylistImportApplyTask final : public IAIMPTask, public ComBase {
+public:
+    PlaylistImportApplyTask(AimpSubsonicPlugin* plugin, std::vector<ServerPlaylistSnapshot> snapshots,
+        uint64_t generation, bool interactive)
+        : plugin_(plugin), snapshots_(std::move(snapshots)), generation_(generation), interactive_(interactive) {
+        if (plugin_) {
+            plugin_->AddRef();
+        }
+    }
+
+    ~PlaylistImportApplyTask() override {
+        if (plugin_) {
+            plugin_->Release();
+        }
+    }
+
+    HRESULT WINAPI QueryInterface(REFIID riid, void** ppvObject) override {
+        if (!ppvObject) {
+            return E_POINTER;
+        }
+        *ppvObject = nullptr;
+        if (riid == IID_IUnknown || riid == IID_IAIMPTask) {
+            *ppvObject = static_cast<IAIMPTask*>(this);
+        } else {
+            return E_NOINTERFACE;
+        }
+        AddRef();
+        return S_OK;
+    }
+
+    ULONG WINAPI AddRef() override { return AddRefImpl(); }
+    ULONG WINAPI Release() override { return ReleaseImpl(); }
+
+    void WINAPI Execute(IAIMPTaskOwner*) override {
+        if (plugin_) {
+            plugin_->ApplyServerPlaylists(snapshots_, generation_, interactive_);
+        }
+    }
+
+private:
+    AimpSubsonicPlugin* plugin_;
+    std::vector<ServerPlaylistSnapshot> snapshots_;
+    uint64_t generation_;
+    bool interactive_;
+};
+
 AimpSubsonicPlugin::~AimpSubsonicPlugin() {
     Finalize();
 }
@@ -419,6 +541,7 @@ HRESULT WINAPI AimpSubsonicPlugin::Initialize(IAIMPCore* Core) {
 }
 
 HRESULT WINAPI AimpSubsonicPlugin::Finalize() {
+    CancelPlaylistImportTask();
     CancelMetadataIndexTask();
     UnregisterPlaybackTracking();
     UnregisterPlaylistMetadataListener();
@@ -440,6 +563,9 @@ void WINAPI AimpSubsonicPlugin::SystemNotification(int, IUnknown*) {
 
 void WINAPI AimpSubsonicPlugin::CoreMessage(LongWord AMessage, int, void*, HRESULT*) {
     switch (AMessage) {
+    case AIMP_MSG_EVENT_LOADED:
+        RefreshImportedPlaylistsAtStartup();
+        break;
     case AIMP_MSG_EVENT_STREAM_START:
     case AIMP_MSG_EVENT_STREAM_START_SUBTRACK:
     case AIMP_MSG_EVENT_PLAYING_FILE_INFO:
@@ -457,6 +583,7 @@ void WINAPI AimpSubsonicPlugin::CoreMessage(LongWord AMessage, int, void*, HRESU
 }
 
 void AimpSubsonicPlugin::ApplyConfig(const SubsonicConfig& config) {
+    CancelPlaylistImportTask();
     CancelMetadataIndexTask();
     SetDebugLoggingEnabled(config.debugLogging);
     client_ = std::make_unique<SubsonicClient>(config);
@@ -660,6 +787,318 @@ void AimpSubsonicPlugin::FinishMetadataIndexTask(uint64_t generation) {
     }
 }
 
+void AimpSubsonicPlugin::ImportServerPlaylists(bool interactive) {
+    LogInfo(L"Server playlist import requested. Interactive=" + std::to_wstring(interactive ? 1 : 0));
+    if (!repository_) {
+        if (interactive) {
+            ShowPluginMessage(L"Subsonic config is not loaded. Open AIMP Options -> Subsonic.");
+        }
+        return;
+    }
+
+    IAIMPServiceThreads* threads = nullptr;
+    if (core_.get() && SUCCEEDED(core_.get()->QueryInterface(IID_IAIMPServiceThreads, reinterpret_cast<void**>(&threads))) && threads) {
+        HRESULT hr = S_OK;
+        PlaylistImportTask* task = nullptr;
+        {
+            std::lock_guard lock(playlistImportMutex_);
+            if (playlistImportRunning_) {
+                threads->Release();
+                if (interactive) {
+                    ShowPluginMessage(L"Subsonic playlists are already being imported.");
+                }
+                return;
+            }
+            playlistImportRunning_ = true;
+            playlistImportTask_ = 0;
+            const uint64_t generation = ++playlistImportGeneration_;
+            task = new PlaylistImportTask(this, generation, interactive);
+            hr = threads->ExecuteInThread(task, &playlistImportTask_);
+            if (FAILED(hr)) {
+                playlistImportRunning_ = false;
+                playlistImportTask_ = 0;
+                ++playlistImportGeneration_;
+            } else {
+                playlistImportTaskObject_ = task;
+                task = nullptr;
+            }
+        }
+        if (task) {
+            task->Release();
+        }
+        threads->Release();
+        if (FAILED(hr)) {
+            if (interactive) {
+                ShowPluginMessage(L"Failed to start Subsonic playlist import task. Enable Debug logging for details.");
+            }
+            LogInfo(L"Playlist import task start failed. HRESULT=" + std::to_wstring(static_cast<long>(hr)));
+            return;
+        }
+        LogInfo(L"Subsonic playlist import started in background.");
+        return;
+    }
+
+    LogInfo(L"IAIMPServiceThreads is unavailable; playlist import will run synchronously.");
+    uint64_t generation = 0;
+    {
+        std::lock_guard lock(playlistImportMutex_);
+        if (playlistImportRunning_) {
+            if (interactive) {
+                ShowPluginMessage(L"Subsonic playlists are already being imported.");
+            }
+            return;
+        }
+        playlistImportRunning_ = true;
+        playlistImportTask_ = 0;
+        generation = ++playlistImportGeneration_;
+    }
+    RunPlaylistImportTask(nullptr, generation, interactive);
+}
+
+void AimpSubsonicPlugin::RunPlaylistImportTask(IAIMPTaskOwner* owner, uint64_t generation, bool interactive) {
+    auto isCanceled = [owner]() {
+        return owner && owner->IsCanceled();
+    };
+
+    std::vector<ServerPlaylistSnapshot> snapshots;
+    if (!repository_) {
+        LogInfo(L"Playlist import task skipped: repository is unavailable.");
+    } else {
+        auto playlists = repository_->GetPlaylists();
+        if (playlists.empty()) {
+            playlists = repository_->GetCachedPlaylists();
+        }
+        for (const auto& playlist : playlists) {
+            if (isCanceled()) {
+                LogInfo(L"Playlist import task canceled while loading tracks.");
+                FinishPlaylistImportTask(generation);
+                return;
+            }
+            if (playlist.id.empty()) {
+                continue;
+            }
+            ServerPlaylistSnapshot snapshot;
+            snapshot.playlist = playlist;
+            snapshot.tracks = repository_->GetPlaylistTracks(playlist.id);
+            if (snapshot.tracks.empty()) {
+                snapshot.tracks = repository_->GetCachedPlaylistTracks(playlist.id);
+            }
+            snapshots.push_back(std::move(snapshot));
+        }
+        LogInfo(L"Playlist import task loaded server playlists: " + std::to_wstring(snapshots.size()));
+    }
+
+    if (owner == nullptr) {
+        // Synchronous fallback already runs on the calling (main) thread.
+        ApplyServerPlaylists(snapshots, generation, interactive);
+        return;
+    }
+
+    if (core_.get()) {
+        IAIMPServiceThreads* threads = nullptr;
+        if (SUCCEEDED(core_.get()->QueryInterface(IID_IAIMPServiceThreads, reinterpret_cast<void**>(&threads))) && threads) {
+            auto* task = new PlaylistImportApplyTask(this, std::move(snapshots), generation, interactive);
+            const HRESULT hr = threads->ExecuteInMainThread(task, 0);
+            task->Release();
+            threads->Release();
+            if (SUCCEEDED(hr)) {
+                return;
+            }
+            LogInfo(L"Playlist import apply could not be queued to main thread. HRESULT=" +
+                std::to_wstring(static_cast<long>(hr)));
+        }
+    }
+    FinishPlaylistImportTask(generation);
+}
+
+void AimpSubsonicPlugin::ApplyServerPlaylists(const std::vector<ServerPlaylistSnapshot>& snapshots, uint64_t generation, bool interactive) {
+    {
+        std::lock_guard lock(playlistImportMutex_);
+        if (generation != playlistImportGeneration_) {
+            LogInfo(L"Stale playlist import apply ignored. Generation=" + std::to_wstring(generation) +
+                L", Current=" + std::to_wstring(playlistImportGeneration_));
+            return;
+        }
+    }
+
+    // Non-interactive startup sync only refreshes playlists that still exist
+    // in AIMP; playlists the user closed are not recreated automatically.
+    const bool createMissing = interactive;
+    int created = 0;
+    int updated = 0;
+    int skipped = 0;
+    int failed = 0;
+
+    IAIMPServicePlaylistManager* service = nullptr;
+    if (repository_ && core_.get() &&
+        SUCCEEDED(core_.get()->QueryInterface(IID_IAIMPServicePlaylistManager, reinterpret_cast<void**>(&service))) && service) {
+        const auto links = repository_->GetPlaylistLinks();
+        for (const auto& snapshot : snapshots) {
+            IAIMPPlaylist* playlist = nullptr;
+            bool isNew = false;
+
+            const auto link = links.find(snapshot.playlist.id);
+            if (link != links.end()) {
+                IAIMPString* aimpId = MakeAimpString(core_.get(), link->second);
+                if (aimpId) {
+                    if (FAILED(service->GetLoadedPlaylistByID(aimpId, &playlist))) {
+                        playlist = nullptr;
+                    }
+                    aimpId->Release();
+                }
+            }
+            if (!playlist && !snapshot.playlist.name.empty()) {
+                const int count = service->GetLoadedPlaylistCount();
+                for (int i = 0; i < count && !playlist; ++i) {
+                    IAIMPPlaylist* candidate = nullptr;
+                    if (SUCCEEDED(service->GetLoadedPlaylist(i, &candidate)) && candidate) {
+                        const std::wstring name = GetPlaylistPropertyString(candidate, AIMP_PLAYLIST_PROPID_NAME);
+                        if (_wcsicmp(name.c_str(), snapshot.playlist.name.c_str()) == 0) {
+                            playlist = candidate;
+                        } else {
+                            candidate->Release();
+                        }
+                    }
+                }
+            }
+            if (!playlist) {
+                if (!createMissing) {
+                    ++skipped;
+                    continue;
+                }
+                const std::wstring caption = snapshot.playlist.name.empty() ? snapshot.playlist.id : snapshot.playlist.name;
+                IAIMPString* name = MakeAimpString(core_.get(), caption);
+                if (name) {
+                    if (FAILED(service->CreatePlaylist(name, FALSE, &playlist))) {
+                        playlist = nullptr;
+                    } else {
+                        isNew = true;
+                    }
+                    name->Release();
+                }
+            }
+            if (!playlist) {
+                ++failed;
+                LogInfo(L"Playlist import could not open or create AIMP playlist. Playlist=" + snapshot.playlist.name);
+                continue;
+            }
+
+            if (!isNew && !snapshot.playlist.name.empty() &&
+                GetPlaylistPropertyString(playlist, AIMP_PLAYLIST_PROPID_NAME) != snapshot.playlist.name) {
+                SetPlaylistPropertyString(core_.get(), playlist, AIMP_PLAYLIST_PROPID_NAME, snapshot.playlist.name);
+            }
+
+            playlist->BeginUpdate();
+            playlist->DeleteAll();
+            playlist->EndUpdate();
+            const HRESULT hr = snapshot.tracks.empty()
+                ? S_OK
+                : AddTracksToPlaylist(playlist, snapshot.tracks, PlaybackMode::DirectUrl);
+
+            const std::wstring aimpId = GetPlaylistPropertyString(playlist, AIMP_PLAYLIST_PROPID_ID);
+            if (!aimpId.empty()) {
+                repository_->SetPlaylistLink(snapshot.playlist.id, aimpId);
+            }
+
+            if (FAILED(hr)) {
+                ++failed;
+                LogInfo(L"Playlist import failed to fill playlist. Playlist=" + snapshot.playlist.name +
+                    L", HRESULT=" + std::to_wstring(static_cast<long>(hr)));
+            } else if (isNew) {
+                ++created;
+            } else {
+                ++updated;
+            }
+            LogInfo(L"Playlist import applied. Playlist=" + snapshot.playlist.name +
+                L", Tracks=" + std::to_wstring(snapshot.tracks.size()) +
+                L", New=" + std::to_wstring(isNew ? 1 : 0));
+            playlist->Release();
+        }
+        service->Release();
+    } else {
+        LogInfo(L"Playlist import apply skipped: IAIMPServicePlaylistManager unavailable.");
+    }
+
+    FinishPlaylistImportTask(generation);
+    LogInfo(L"Playlist import finished. Created=" + std::to_wstring(created) +
+        L", Updated=" + std::to_wstring(updated) +
+        L", Skipped=" + std::to_wstring(skipped) +
+        L", Failed=" + std::to_wstring(failed));
+
+    if (interactive) {
+        if (snapshots.empty()) {
+            ShowPluginMessage(L"No Subsonic playlists were found on the server.");
+        } else {
+            std::wstringstream message;
+            message << L"Subsonic playlists imported to the Playlist Manager.\r\n"
+                << L"Created: " << created
+                << L", Updated: " << updated
+                << L", Failed: " << failed << L".";
+            ShowPluginMessage(message.str());
+        }
+    }
+}
+
+void AimpSubsonicPlugin::FinishPlaylistImportTask(uint64_t generation) {
+    PlaylistImportTask* task = nullptr;
+    {
+        std::lock_guard lock(playlistImportMutex_);
+        if (generation != playlistImportGeneration_) {
+            return;
+        }
+        task = playlistImportTaskObject_;
+        playlistImportTaskObject_ = nullptr;
+        playlistImportRunning_ = false;
+        playlistImportTask_ = 0;
+    }
+    if (task) {
+        task->Release();
+    }
+}
+
+void AimpSubsonicPlugin::CancelPlaylistImportTask() {
+    TTaskHandle task = 0;
+    PlaylistImportTask* taskObject = nullptr;
+    {
+        std::lock_guard lock(playlistImportMutex_);
+        task = playlistImportTask_;
+        taskObject = playlistImportTaskObject_;
+        playlistImportTaskObject_ = nullptr;
+        if (playlistImportRunning_ || playlistImportTask_ != 0) {
+            ++playlistImportGeneration_;
+        }
+        playlistImportRunning_ = false;
+        playlistImportTask_ = 0;
+    }
+    if (task != 0 && core_.get()) {
+        IAIMPServiceThreads* threads = nullptr;
+        if (SUCCEEDED(core_.get()->QueryInterface(IID_IAIMPServiceThreads, reinterpret_cast<void**>(&threads))) && threads) {
+            LogInfo(L"Canceling active playlist import task.");
+            threads->Cancel(task, AIMP_SERVICE_THREADS_FLAGS_WAITFOR);
+            threads->Release();
+        }
+    }
+    if (taskObject) {
+        taskObject->Release();
+    }
+}
+
+void AimpSubsonicPlugin::RefreshImportedPlaylistsAtStartup() {
+    if (startupPlaylistSyncDone_) {
+        return;
+    }
+    startupPlaylistSyncDone_ = true;
+    if (!repository_) {
+        return;
+    }
+    if (repository_->GetPlaylistLinks().empty()) {
+        LogInfo(L"Startup playlist sync skipped: no playlists were imported before.");
+        return;
+    }
+    LogInfo(L"Startup playlist sync started.");
+    ImportServerPlaylists(false);
+}
+
 void AimpSubsonicPlugin::CancelMetadataIndexTask() {
     TTaskHandle task = 0;
     MetadataIndexTask* taskObject = nullptr;
@@ -710,6 +1149,7 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
 
     MenuAction* copySelectedUrlsAction = new MenuAction(this, MenuCommand::CopySelectedStreamUrls);
     MenuAction* refreshMetadataCacheAction = new MenuAction(this, MenuCommand::RefreshMetadataCache);
+    MenuAction* importPlaylistsAction = new MenuAction(this, MenuCommand::ImportServerPlaylists);
     MenuAction* openSettingsAction = new MenuAction(this, MenuCommand::OpenSettings);
     HRESULT firstError = E_FAIL;
     bool registeredAny = false;
@@ -734,6 +1174,10 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
             if (SUCCEEDED(hr)) {
                 const std::wstring refreshId = std::wstring(location.second) + L".refresh_metadata_cache";
                 hr = CreateMenuItem(core_.get(), subsonicMenu, refreshMetadataCacheAction, refreshId, L10n::Text(L"构建 / 刷新元数据索引", L"Build / Refresh Metadata Index"));
+            }
+            if (SUCCEEDED(hr)) {
+                const std::wstring importId = std::wstring(location.second) + L".import_server_playlists";
+                hr = CreateMenuItem(core_.get(), subsonicMenu, importPlaylistsAction, importId, L"Import Server Playlists");
             }
             if (SUCCEEDED(hr)) {
                 const std::wstring settingsId = std::wstring(location.second) + L".open_settings";
@@ -802,6 +1246,10 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
                     std::wstring(location.second) + L".refresh_metadata_cache", L10n::Text(L"构建 / 刷新元数据索引", L"Build / Refresh Metadata Index"));
             }
             if (SUCCEEDED(hr)) {
+                hr = CreateMenuItem(core_.get(), subsonicMenu, importPlaylistsAction,
+                    std::wstring(location.second) + L".import_server_playlists", L"Import Server Playlists");
+            }
+            if (SUCCEEDED(hr)) {
                 hr = CreateMenuItem(core_.get(), subsonicMenu, openSettingsAction,
                     std::wstring(location.second) + L".settings", L10n::Text(L"设置", L"Settings"));
             }
@@ -817,6 +1265,7 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
 
     copySelectedUrlsAction->Release();
     refreshMetadataCacheAction->Release();
+    importPlaylistsAction->Release();
     openSettingsAction->Release();
     menuService->Release();
     return registeredAny ? S_OK : firstError;
@@ -1367,6 +1816,9 @@ void WINAPI MenuAction::OnExecute(IUnknown*) {
             break;
         case MenuCommand::RefreshMetadataCache:
             plugin_->RefreshMetadataCache();
+            break;
+        case MenuCommand::ImportServerPlaylists:
+            plugin_->ImportServerPlaylists();
             break;
         case MenuCommand::OpenSettings:
             plugin_->OpenSettings();
