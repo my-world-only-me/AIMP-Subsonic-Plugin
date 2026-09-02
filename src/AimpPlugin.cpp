@@ -791,7 +791,7 @@ void AimpSubsonicPlugin::ImportServerPlaylists(bool interactive) {
     LogInfo(L"Server playlist import requested. Interactive=" + std::to_wstring(interactive ? 1 : 0));
     if (!repository_) {
         if (interactive) {
-            ShowPluginMessage(L"Subsonic config is not loaded. Open AIMP Options -> Subsonic.");
+            ShowPluginMessage(L10n::Text(L"Subsonic 配置未加载。请在 AIMP 选项 -> Subsonic 中配置。", L"Subsonic config is not loaded. Open AIMP Options -> Subsonic."));
         }
         return;
     }
@@ -805,7 +805,7 @@ void AimpSubsonicPlugin::ImportServerPlaylists(bool interactive) {
             if (playlistImportRunning_) {
                 threads->Release();
                 if (interactive) {
-                    ShowPluginMessage(L"Subsonic playlists are already being imported.");
+                    ShowPluginMessage(L10n::Text(L"Subsonic 播放列表正在导入中。", L"Subsonic playlists are already being imported."));
                 }
                 return;
             }
@@ -829,7 +829,7 @@ void AimpSubsonicPlugin::ImportServerPlaylists(bool interactive) {
         threads->Release();
         if (FAILED(hr)) {
             if (interactive) {
-                ShowPluginMessage(L"Failed to start Subsonic playlist import task. Enable Debug logging for details.");
+                ShowPluginMessage(L10n::Text(L"启动 Subsonic 播放列表导入任务失败。请启用调试日志获取详细信息。", L"Failed to start Subsonic playlist import task. Enable Debug logging for details."));
             }
             LogInfo(L"Playlist import task start failed. HRESULT=" + std::to_wstring(static_cast<long>(hr)));
             return;
@@ -844,7 +844,7 @@ void AimpSubsonicPlugin::ImportServerPlaylists(bool interactive) {
         std::lock_guard lock(playlistImportMutex_);
         if (playlistImportRunning_) {
             if (interactive) {
-                ShowPluginMessage(L"Subsonic playlists are already being imported.");
+                ShowPluginMessage(L10n::Text(L"Subsonic 播放列表正在导入中。", L"Subsonic playlists are already being imported."));
             }
             return;
         }
@@ -1027,13 +1027,20 @@ void AimpSubsonicPlugin::ApplyServerPlaylists(const std::vector<ServerPlaylistSn
 
     if (interactive) {
         if (snapshots.empty()) {
-            ShowPluginMessage(L"No Subsonic playlists were found on the server.");
+            ShowPluginMessage(L10n::Text(L"服务器上没有找到 Subsonic 播放列表。", L"No Subsonic playlists were found on the server."));
         } else {
             std::wstringstream message;
-            message << L"Subsonic playlists imported to the Playlist Manager.\r\n"
-                << L"Created: " << created
-                << L", Updated: " << updated
-                << L", Failed: " << failed << L".";
+            if (L10n::IsChineseUi()) {
+                message << L"已将 Subsonic 播放列表导入播放列表管理器。\r\n"
+                    << L"新建: " << created
+                    << L", 更新: " << updated
+                    << L", 失败: " << failed << L"。";
+            } else {
+                message << L"Subsonic playlists imported to the Playlist Manager.\r\n"
+                    << L"Created: " << created
+                    << L", Updated: " << updated
+                    << L", Failed: " << failed << L".";
+            }
             ShowPluginMessage(message.str());
         }
     }
@@ -1177,7 +1184,7 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
             }
             if (SUCCEEDED(hr)) {
                 const std::wstring importId = std::wstring(location.second) + L".import_server_playlists";
-                hr = CreateMenuItem(core_.get(), subsonicMenu, importPlaylistsAction, importId, L"Import Server Playlists");
+                hr = CreateMenuItem(core_.get(), subsonicMenu, importPlaylistsAction, importId, L10n::Text(L"导入服务器播放列表", L"Import Server Playlists"));
             }
             if (SUCCEEDED(hr)) {
                 const std::wstring settingsId = std::wstring(location.second) + L".open_settings";
@@ -1247,7 +1254,7 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
             }
             if (SUCCEEDED(hr)) {
                 hr = CreateMenuItem(core_.get(), subsonicMenu, importPlaylistsAction,
-                    std::wstring(location.second) + L".import_server_playlists", L"Import Server Playlists");
+                    std::wstring(location.second) + L".import_server_playlists", L10n::Text(L"导入服务器播放列表", L"Import Server Playlists"));
             }
             if (SUCCEEDED(hr)) {
                 hr = CreateMenuItem(core_.get(), subsonicMenu, openSettingsAction,

@@ -459,7 +459,7 @@ void SubsonicOptionsFrame::CreateControls() {
     maxBitRateEdit_ = CreateEdit(kIdMaxBitRate, ES_NUMBER);
 
     libraryGroup_ = CreateGroupBox(L10n::Text(L"音乐库", L"Music Library"));
-    CreateLabel(L10n::Text(L"库页面大小", L"Library page size"));
+    CreateLabel(L10n::Text(L"加载上限", L"Library page size"));
     libraryPageSizeEdit_ = CreateEdit(kIdLibraryPageSize, ES_NUMBER);
     CreateHint(L10n::Text(L"用于艺术家 / 专辑浏览。Subsonic API 上限为 500。",
         L"Used for Artists/Albums browsing. Subsonic API maximum is 500."));
@@ -603,7 +603,7 @@ bool SubsonicOptionsFrame::CreateAimpControls(HWND parentWnd) {
     y += 102;
 
     uiLibraryGroup_ = createGroup(L10n::Text(L"音乐库", L"Music Library"), x, y, w, 96);
-    createLabel(uiLibraryGroup_, L10n::Text(L"库页面大小", L"Library page size"), 14, 28, labelW, 22);
+    createLabel(uiLibraryGroup_, L10n::Text(L"加载上限", L"Library page size"), 14, 28, labelW, 22);
     uiLibraryPageSizeEdit_ = createEdit(uiLibraryGroup_, editX, 26, 120, 24);
     createLabel(uiLibraryGroup_, L10n::Text(L"用于艺术家、专辑和曲目浏览。Subsonic API 上限为 500。", L"Used for Artists, Albums and Tracks. Subsonic API maximum is 500."), editX, 56, 450, 34, true);
     y += 106;
@@ -694,7 +694,7 @@ void SubsonicOptionsFrame::LayoutAimpControls() {
     layoutRow(label(5), uiLibraryPageSizeEdit_, localY, 140);
     if (!uiHints_.empty()) {
         place(uiHints_[0], editX, localY - rowGap, editWidth, 34);
-        localY += 28;
+        localY += 34;
     }
     finishGroup(uiLibraryGroup_, localY);
 
@@ -776,7 +776,7 @@ void SubsonicOptionsFrame::LayoutControls() {
     layoutRow(labels_.size() > 5 ? labels_[5] : nullptr, libraryPageSizeEdit_);
     if (!hints_.empty()) {
         MoveControl(hints_[0], editX, y - rowGap, editWidth, hintHeight);
-        y += compact ? 22 : 28;
+        y += hintHeight;
     }
     endGroup(libraryGroup_, top);
 
