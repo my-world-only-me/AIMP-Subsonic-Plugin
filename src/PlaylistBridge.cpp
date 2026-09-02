@@ -4,6 +4,7 @@
 
 #include "AimpString.h"
 #include "Url.h"
+#include "i18n.h"
 
 namespace {
 
@@ -125,7 +126,7 @@ TrackInfo BuildTrackFromFileInfo(const std::wstring& songId, IAIMPFileInfo* info
     TrackInfo track;
     track.id = songId;
     if (!info) {
-        track.title = L"Subsonic song " + songId;
+        track.title = L10n::Text(L"Subsonic 曲目 ", L"Subsonic song ") + songId;
         return track;
     }
 
@@ -153,7 +154,7 @@ TrackInfo BuildTrackFromFileInfo(const std::wstring& songId, IAIMPFileInfo* info
     }
 
     if (track.title.empty()) {
-        track.title = L"Subsonic song " + songId;
+        track.title = L10n::Text(L"Subsonic 曲目 ", L"Subsonic song ") + songId;
     }
     return track;
 }

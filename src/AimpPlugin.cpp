@@ -10,6 +10,7 @@
 #include "PlaylistBridge.h"
 #include "SubsonicOptionsFrame.h"
 #include "Version.h"
+#include "i18n.h"
 
 #include <algorithm>
 #include <cstring>
@@ -125,32 +126,53 @@ bool CopyTextToClipboard(const std::wstring& text) {
 }
 
 std::wstring FormatMetadataIndexSummary(const MetadataIndexBuildResult& result) {
+    const bool zh = L10n::IsChineseUi();
     std::wstringstream message;
     if (result.canceled) {
-        message << L"Subsonic metadata index build was canceled.\r\n";
+        message << (zh ? L"Subsonic 元数据索引构建已取消。\r\n" : L"Subsonic metadata index build was canceled.\r\n");
     } else if (result.ok) {
-        message << L"Subsonic metadata index refreshed.\r\n";
+        message << (zh ? L"Subsonic 元数据索引已刷新。\r\n" : L"Subsonic metadata index refreshed.\r\n");
     } else {
-        message << L"Subsonic metadata index was not refreshed.\r\n";
+        message << (zh ? L"Subsonic 元数据索引未刷新。\r\n" : L"Subsonic metadata index was not refreshed.\r\n");
     }
 
-    message << L"Loaded now: "
-        << result.searchTracksLoaded << L" search tracks, "
-        << result.albumTracksLoaded << L" album tracks, "
-        << result.playlistTracksLoaded << L" playlist tracks, "
-        << result.starredTracksLoaded << L" starred tracks.\r\n"
-        << L"Browsed: "
-        << result.artistsLoaded << L" artists, "
-        << result.albumsLoaded << L" albums in "
-        << result.albumPagesLoaded << L" page(s), "
-        << result.playlistsLoaded << L" playlists.\r\n"
-        << L"Removed stale cached tracks: "
-        << result.staleTracksPruned << L".\r\n"
-        << L"Cached total: "
-        << result.cachedTracks << L" tracks, "
-        << result.cachedArtists << L" artists, "
-        << result.cachedAlbums << L" albums, "
-        << result.cachedPlaylists << L" playlists.";
+    if (zh) {
+        message << L"本次载入："
+            << result.searchTracksLoaded << L" 首搜索曲目、"
+            << result.albumTracksLoaded << L" 首专辑曲目、"
+            << result.playlistTracksLoaded << L" 首播放列表曲目、"
+            << result.starredTracksLoaded << L" 首收藏曲目。\r\n"
+            << L"浏览："
+            << result.artistsLoaded << L" 位艺术家、"
+            << result.albumsLoaded << L" 张专辑（"
+            << result.albumPagesLoaded << L" 页）、"
+            << result.playlistsLoaded << L" 个播放列表。\r\n"
+            << L"移除过期缓存曲目："
+            << result.staleTracksPruned << L"。\r\n"
+            << L"缓存总计："
+            << result.cachedTracks << L" 首曲目、"
+            << result.cachedArtists << L" 位艺术家、"
+            << result.cachedAlbums << L" 张专辑、"
+            << result.cachedPlaylists << L" 个播放列表。";
+    } else {
+        message << L"Loaded now: "
+            << result.searchTracksLoaded << L" search tracks, "
+            << result.albumTracksLoaded << L" album tracks, "
+            << result.playlistTracksLoaded << L" playlist tracks, "
+            << result.starredTracksLoaded << L" starred tracks.\r\n"
+            << L"Browsed: "
+            << result.artistsLoaded << L" artists, "
+            << result.albumsLoaded << L" albums in "
+            << result.albumPagesLoaded << L" page(s), "
+            << result.playlistsLoaded << L" playlists.\r\n"
+            << L"Removed stale cached tracks: "
+            << result.staleTracksPruned << L".\r\n"
+            << L"Cached total: "
+            << result.cachedTracks << L" tracks, "
+            << result.cachedArtists << L" artists, "
+            << result.cachedAlbums << L" albums, "
+            << result.cachedPlaylists << L" playlists.";
+    }
     return message.str();
 }
 
@@ -337,9 +359,9 @@ TChar* WINAPI AimpSubsonicPlugin::InfoGet(int Index) {
     case AIMP_PLUGIN_INFO_AUTHOR:
         return const_cast<TChar*>(L"Astra");
     case AIMP_PLUGIN_INFO_SHORT_DESCRIPTION:
-        return const_cast<TChar*>(L"Loads and plays Subsonic-compatible streams.");
+        return const_cast<TChar*>(L10n::Text(L"加载并播放 Subsonic 兼容服务器上的流媒体。", L"Loads and plays Subsonic-compatible streams."));
     case AIMP_PLUGIN_INFO_FULL_DESCRIPTION:
-        return const_cast<TChar*>(L"Subsonic/Navidrome integration for AIMP with direct streaming and Music Library storage.");
+        return const_cast<TChar*>(L10n::Text(L"Subsonic/Navidrome 与 AIMP 的集成：直接流式播放与音乐库存储。", L"Subsonic/Navidrome integration for AIMP with direct streaming and Music Library storage."));
     default:
         return const_cast<TChar*>(L"");
     }
@@ -477,13 +499,14 @@ bool AimpSubsonicPlugin::TestSubsonicConfig(const SubsonicConfig& config) const 
 void AimpSubsonicPlugin::CopySelectedStreamUrls() {
     LogInfo(L"CopySelectedStreamUrls started.");
     if (!repository_) {
-        ShowPluginMessage(L"Subsonic config is not loaded. Open AIMP Options -> Subsonic or use subsonic.local.json next to aimp_subsonic.dll.");
+        ShowPluginMessage(L10n::Text(L"Subsonic 配置未加载。请在 AIMP 选项 -> Subsonic 中配置，或在 aimp_subsonic.dll 旁使用 subsonic.local.json。",
+            L"Subsonic config is not loaded. Open AIMP Options -> Subsonic or use subsonic.local.json next to aimp_subsonic.dll."));
         return;
     }
 
     const std::vector<TrackInfo> tracks = CollectActivePlaylistTracks(true);
     if (tracks.empty()) {
-        ShowPluginMessage(L"No selected Subsonic tracks to copy.");
+        ShowPluginMessage(L10n::Text(L"没有选中的 Subsonic 曲目可复制。", L"No selected Subsonic tracks to copy."));
         return;
     }
 
@@ -495,16 +518,16 @@ void AimpSubsonicPlugin::CopySelectedStreamUrls() {
         text += repository_->BuildStreamUrl(track.id);
     }
     if (CopyTextToClipboard(text)) {
-        ShowPluginMessage(L"Copied Subsonic stream URLs: " + std::to_wstring(tracks.size()));
+        ShowPluginMessage(L10n::Text(L"已复制 Subsonic 流媒体地址：", L"Copied Subsonic stream URLs: ") + std::to_wstring(tracks.size()));
     } else {
-        ShowPluginMessage(L"Failed to copy Subsonic stream URLs to clipboard.");
+        ShowPluginMessage(L10n::Text(L"复制 Subsonic 流媒体地址到剪贴板失败。", L"Failed to copy Subsonic stream URLs to clipboard."));
     }
 }
 
 void AimpSubsonicPlugin::RefreshMetadataCache() {
     LogInfo(L"Metadata index build requested.");
     if (!repository_) {
-        ShowPluginMessage(L"Subsonic config is not loaded. Open AIMP Options -> Subsonic.");
+        ShowPluginMessage(L10n::Text(L"Subsonic 配置未加载。请在 AIMP 选项 -> Subsonic 中配置。", L"Subsonic config is not loaded. Open AIMP Options -> Subsonic."));
         return;
     }
 
@@ -517,7 +540,7 @@ void AimpSubsonicPlugin::RefreshMetadataCache() {
             std::lock_guard lock(metadataIndexMutex_);
             if (metadataIndexRunning_) {
                 threads->Release();
-                ShowPluginMessage(L"Subsonic metadata index is already being refreshed.");
+                ShowPluginMessage(L10n::Text(L"Subsonic 元数据索引正在刷新中。", L"Subsonic metadata index is already being refreshed."));
                 return;
             }
             metadataIndexRunning_ = true;
@@ -539,7 +562,7 @@ void AimpSubsonicPlugin::RefreshMetadataCache() {
         }
         threads->Release();
         if (FAILED(hr)) {
-            ShowPluginMessage(L"Failed to start Subsonic metadata index task. Enable Debug logging for details.");
+            ShowPluginMessage(L10n::Text(L"启动 Subsonic 元数据索引任务失败。如需要详细信息，请启用调试日志。", L"Failed to start Subsonic metadata index task. Enable Debug logging for details."));
             LogInfo(L"Metadata index task start failed. HRESULT=" + std::to_wstring(static_cast<long>(hr)));
             return;
         }
@@ -552,7 +575,7 @@ void AimpSubsonicPlugin::RefreshMetadataCache() {
     {
         std::lock_guard lock(metadataIndexMutex_);
         if (metadataIndexRunning_) {
-            ShowPluginMessage(L"Subsonic metadata index is already being refreshed.");
+            ShowPluginMessage(L10n::Text(L"Subsonic 元数据索引正在刷新中。", L"Subsonic metadata index is already being refreshed."));
             return;
         }
         metadataIndexRunning_ = true;
@@ -667,7 +690,7 @@ void AimpSubsonicPlugin::CancelMetadataIndexTask() {
 void AimpSubsonicPlugin::OpenSettings() {
     LogInfo(L"OpenSettings started.");
     if (!optionsFrame_) {
-        ShowPluginMessage(L"Subsonic settings frame is not initialized.");
+        ShowPluginMessage(L10n::Text(L"Subsonic 设置面板未初始化。", L"Subsonic settings frame is not initialized."));
         return;
     }
     IAIMPServiceOptionsDialog* options = nullptr;
@@ -675,7 +698,7 @@ void AimpSubsonicPlugin::OpenSettings() {
         options->FrameShow(static_cast<IAIMPOptionsDialogFrame*>(optionsFrame_), TRUE);
         options->Release();
     } else {
-        ShowPluginMessage(L"Cannot open AIMP options dialog.");
+        ShowPluginMessage(L10n::Text(L"无法打开 AIMP 选项对话框。", L"Cannot open AIMP options dialog."));
     }
 }
 
@@ -710,11 +733,11 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
             }
             if (SUCCEEDED(hr)) {
                 const std::wstring refreshId = std::wstring(location.second) + L".refresh_metadata_cache";
-                hr = CreateMenuItem(core_.get(), subsonicMenu, refreshMetadataCacheAction, refreshId, L"Build / Refresh Metadata Index");
+                hr = CreateMenuItem(core_.get(), subsonicMenu, refreshMetadataCacheAction, refreshId, L10n::Text(L"构建 / 刷新元数据索引", L"Build / Refresh Metadata Index"));
             }
             if (SUCCEEDED(hr)) {
                 const std::wstring settingsId = std::wstring(location.second) + L".open_settings";
-                hr = CreateMenuItem(core_.get(), subsonicMenu, openSettingsAction, settingsId, L"Settings");
+                hr = CreateMenuItem(core_.get(), subsonicMenu, openSettingsAction, settingsId, L10n::Text(L"设置", L"Settings"));
             }
             SafeRelease(subsonicMenu);
             parent->Release();
@@ -743,11 +766,11 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
             }
             if (SUCCEEDED(hr)) {
                 hr = CreateMenuItem(core_.get(), subsonicMenu, copySelectedUrlsAction,
-                    std::wstring(location.second) + L".copy_stream_urls", L"Copy Stream URLs");
+                    std::wstring(location.second) + L".copy_stream_urls", L10n::Text(L"复制流媒体地址", L"Copy Stream URLs"));
             }
             if (SUCCEEDED(hr)) {
                 hr = CreateMenuItem(core_.get(), subsonicMenu, openSettingsAction,
-                    std::wstring(location.second) + L".settings", L"Settings");
+                    std::wstring(location.second) + L".settings", L10n::Text(L"设置", L"Settings"));
             }
             SafeRelease(subsonicMenu);
             parent->Release();
@@ -776,11 +799,11 @@ HRESULT AimpSubsonicPlugin::RegisterMenu() {
             }
             if (SUCCEEDED(hr)) {
                 hr = CreateMenuItem(core_.get(), subsonicMenu, refreshMetadataCacheAction,
-                    std::wstring(location.second) + L".refresh_metadata_cache", L"Build / Refresh Metadata Index");
+                    std::wstring(location.second) + L".refresh_metadata_cache", L10n::Text(L"构建 / 刷新元数据索引", L"Build / Refresh Metadata Index"));
             }
             if (SUCCEEDED(hr)) {
                 hr = CreateMenuItem(core_.get(), subsonicMenu, openSettingsAction,
-                    std::wstring(location.second) + L".settings", L"Settings");
+                    std::wstring(location.second) + L".settings", L10n::Text(L"设置", L"Settings"));
             }
             SafeRelease(subsonicMenu);
             parent->Release();

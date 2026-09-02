@@ -72,6 +72,7 @@ add_library(aimp_subsonic SHARED
   src/SubsonicOptionsFrame.cpp
   src/SubsonicRepository.cpp
   src/Url.cpp
+  src/i18n.cpp
 )
 
 target_include_directories(aimp_subsonic PRIVATE
@@ -99,7 +100,7 @@ set_target_properties(aimp_subsonic PROPERTIES
 )
 
 if(MSVC)
-  target_compile_options(aimp_subsonic PRIVATE /W4 /permissive- /EHsc)
+  target_compile_options(aimp_subsonic PRIVATE /W4 /permissive- /EHsc /utf-8)
   target_compile_options(aimp_subsonic PRIVATE /wd4100)
 endif()
 
@@ -113,7 +114,7 @@ target_include_directories(aimp_subsonic_node_tests PRIVATE
 )
 
 if(MSVC)
-  target_compile_options(aimp_subsonic_node_tests PRIVATE /W4 /permissive- /EHsc)
+  target_compile_options(aimp_subsonic_node_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
 endif()
 
 add_executable(aimp_subsonic_security_tests EXCLUDE_FROM_ALL
@@ -138,5 +139,5 @@ target_link_libraries(aimp_subsonic_security_tests PRIVATE
 )
 
 if(MSVC)
-  target_compile_options(aimp_subsonic_security_tests PRIVATE /W4 /permissive- /EHsc)
+  target_compile_options(aimp_subsonic_security_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
 endif()

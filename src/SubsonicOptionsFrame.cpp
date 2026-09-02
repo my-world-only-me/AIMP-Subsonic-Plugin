@@ -7,6 +7,7 @@
 #include "Diagnostics.h"
 #include "SubsonicClient.h"
 #include "Version.h"
+#include "i18n.h"
 
 extern HMODULE g_moduleHandle;
 
@@ -149,6 +150,20 @@ void DisableVisualTheme(HWND hwnd) {
     if (hwnd && setWindowTheme) {
         setWindowTheme(hwnd, L"", L"");
     }
+}
+
+using ShouldAppsUseDarkModeProc = bool(WINAPI*)();
+
+bool IsSystemDarkMode() {
+    // Windows 10 1809+ exposes the apps dark-mode preference through uxtheme.dll.
+    HMODULE module = LoadLibraryW(L"uxtheme.dll");
+    if (!module) {
+        return false;
+    }
+    const auto shouldAppsUseDarkMode = reinterpret_cast<ShouldAppsUseDarkModeProc>(
+        GetProcAddress(module, "ShouldAppsUseDarkMode"));
+    FreeLibrary(module);
+    return shouldAppsUseDarkMode && shouldAppsUseDarkMode();
 }
 
 } // namespace
@@ -424,44 +439,45 @@ LRESULT SubsonicOptionsFrame::HandleMessage(UINT message, WPARAM wParam, LPARAM 
 }
 
 void SubsonicOptionsFrame::CreateControls() {
-    connectionGroup_ = CreateGroupBox(L"Connection");
-    CreateLabel(L"Server URL");
+    connectionGroup_ = CreateGroupBox(L10n::Text(L"连接", L"Connection"));
+    CreateLabel(L10n::Text(L"服务器地址", L"Server URL"));
     serverUrlEdit_ = CreateEdit(kIdServerUrl);
-    CreateLabel(L"Username");
+    CreateLabel(L10n::Text(L"用户名", L"Username"));
     usernameEdit_ = CreateEdit(kIdUsername);
-    CreateLabel(L"Password");
+    CreateLabel(L10n::Text(L"密码", L"Password"));
     passwordEdit_ = CreateEdit(kIdPassword, ES_PASSWORD);
-    showPasswordCheck_ = CreateWindowExW(0, L"BUTTON", L"Show password",
+    showPasswordCheck_ = CreateWindowExW(0, L"BUTTON", L10n::Text(L"显示密码", L"Show password"),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         0, 0, 0, 0, host_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdShowPassword)), g_moduleHandle, nullptr);
     ApplyDefaultFont(showPasswordCheck_);
     DisableVisualTheme(showPasswordCheck_);
 
-    playbackGroup_ = CreateGroupBox(L"Playback");
-    CreateLabel(L"Stream format");
+    playbackGroup_ = CreateGroupBox(L10n::Text(L"播放", L"Playback"));
+    CreateLabel(L10n::Text(L"流格式", L"Stream format"));
     streamFormatEdit_ = CreateEdit(kIdStreamFormat);
-    CreateLabel(L"Max bitrate");
+    CreateLabel(L10n::Text(L"最大比特率", L"Max bitrate"));
     maxBitRateEdit_ = CreateEdit(kIdMaxBitRate, ES_NUMBER);
 
-    libraryGroup_ = CreateGroupBox(L"Music Library");
-    CreateLabel(L"Library page size");
+    libraryGroup_ = CreateGroupBox(L10n::Text(L"音乐库", L"Music Library"));
+    CreateLabel(L10n::Text(L"库页面大小", L"Library page size"));
     libraryPageSizeEdit_ = CreateEdit(kIdLibraryPageSize, ES_NUMBER);
-    CreateHint(L"Used for Artists/Albums browsing. Subsonic API maximum is 500.");
+    CreateHint(L10n::Text(L"用于艺术家 / 专辑浏览。Subsonic API 上限为 500。",
+        L"Used for Artists/Albums browsing. Subsonic API maximum is 500."));
 
-    diagnosticsGroup_ = CreateGroupBox(L"Diagnostics");
-    ignoreTlsCertificateErrorsCheck_ = CreateWindowExW(0, L"BUTTON", L"Allow self-signed HTTPS certificates",
+    diagnosticsGroup_ = CreateGroupBox(L10n::Text(L"诊断", L"Diagnostics"));
+    ignoreTlsCertificateErrorsCheck_ = CreateWindowExW(0, L"BUTTON", L10n::Text(L"允许自签名 HTTPS 证书", L"Allow self-signed HTTPS certificates"),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         0, 0, 0, 0, host_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdIgnoreTlsCertificateErrors)), g_moduleHandle, nullptr);
     ApplyDefaultFont(ignoreTlsCertificateErrorsCheck_);
     DisableVisualTheme(ignoreTlsCertificateErrorsCheck_);
 
-    debugLoggingCheck_ = CreateWindowExW(0, L"BUTTON", L"Debug logging",
+    debugLoggingCheck_ = CreateWindowExW(0, L"BUTTON", L10n::Text(L"调试日志", L"Debug logging"),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
         0, 0, 0, 0, host_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdDebugLogging)), g_moduleHandle, nullptr);
     ApplyDefaultFont(debugLoggingCheck_);
     DisableVisualTheme(debugLoggingCheck_);
 
-    testButton_ = CreateButton(kIdTestConnection, L"Test Connection");
+    testButton_ = CreateButton(kIdTestConnection, L10n::Text(L"测试连接", L"Test Connection"));
     statusLabel_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
         0, 0, 0, 0, host_, nullptr, g_moduleHandle, nullptr);
     ApplyDefaultFont(statusLabel_);
@@ -562,15 +578,15 @@ bool SubsonicOptionsFrame::CreateAimpControls(HWND parentWnd) {
     const int editX = 130;
     int y = 10;
 
-    uiConnectionGroup_ = createGroup(L"Connection", x, y, w, 148);
-    createLabel(uiConnectionGroup_, L"Server URL", 14, 28, labelW, 22);
+    uiConnectionGroup_ = createGroup(L10n::Text(L"连接", L"Connection"), x, y, w, 148);
+    createLabel(uiConnectionGroup_, L10n::Text(L"服务器地址", L"Server URL"), 14, 28, labelW, 22);
     uiServerUrlEdit_ = createEdit(uiConnectionGroup_, editX, 26, 450, 24);
-    createLabel(uiConnectionGroup_, L"Username", 14, 58, labelW, 22);
+    createLabel(uiConnectionGroup_, L10n::Text(L"用户名", L"Username"), 14, 58, labelW, 22);
     uiUsernameEdit_ = createEdit(uiConnectionGroup_, editX, 56, 450, 24);
-    createLabel(uiConnectionGroup_, L"Password", 14, 88, labelW, 22);
+    createLabel(uiConnectionGroup_, L10n::Text(L"密码", L"Password"), 14, 88, labelW, 22);
     uiPasswordEdit_ = createEdit(uiConnectionGroup_, editX, 86, 450, 24, true);
-    uiShowPasswordCheck_ = createCheck(uiConnectionGroup_, L"Show password", editX, 116, 160, 24, UiAction::TogglePassword);
-    uiTestButton_ = createButton(uiConnectionGroup_, L"Test Connection", editX + 174, 114, 132, 26, UiAction::TestConnection);
+    uiShowPasswordCheck_ = createCheck(uiConnectionGroup_, L10n::Text(L"显示密码", L"Show password"), editX, 116, 160, 24, UiAction::TogglePassword);
+    uiTestButton_ = createButton(uiConnectionGroup_, L10n::Text(L"测试连接", L"Test Connection"), editX + 174, 114, 132, 26, UiAction::TestConnection);
     uiStatusLabel_ = nullptr;
     uiService_->CreateControl(uiForm_, uiConnectionGroup_, nullptr, nullptr, IID_IAIMPUILabel, reinterpret_cast<void**>(&uiStatusLabel_));
     if (uiStatusLabel_) {
@@ -579,22 +595,22 @@ bool SubsonicOptionsFrame::CreateAimpControls(HWND parentWnd) {
     }
     y += 158;
 
-    uiPlaybackGroup_ = createGroup(L"Playback", x, y, w, 92);
-    createLabel(uiPlaybackGroup_, L"Stream format", 14, 28, labelW, 22);
+    uiPlaybackGroup_ = createGroup(L10n::Text(L"播放", L"Playback"), x, y, w, 92);
+    createLabel(uiPlaybackGroup_, L10n::Text(L"流格式", L"Stream format"), 14, 28, labelW, 22);
     uiStreamFormatEdit_ = createEdit(uiPlaybackGroup_, editX, 26, 120, 24);
-    createLabel(uiPlaybackGroup_, L"Max bitrate", 14, 58, labelW, 22);
+    createLabel(uiPlaybackGroup_, L10n::Text(L"最大比特率", L"Max bitrate"), 14, 58, labelW, 22);
     uiMaxBitRateEdit_ = createEdit(uiPlaybackGroup_, editX, 56, 120, 24);
     y += 102;
 
-    uiLibraryGroup_ = createGroup(L"Music Library", x, y, w, 96);
-    createLabel(uiLibraryGroup_, L"Library page size", 14, 28, labelW, 22);
+    uiLibraryGroup_ = createGroup(L10n::Text(L"音乐库", L"Music Library"), x, y, w, 96);
+    createLabel(uiLibraryGroup_, L10n::Text(L"库页面大小", L"Library page size"), 14, 28, labelW, 22);
     uiLibraryPageSizeEdit_ = createEdit(uiLibraryGroup_, editX, 26, 120, 24);
-    createLabel(uiLibraryGroup_, L"Used for Artists, Albums and Tracks. Subsonic API maximum is 500.", editX, 56, 450, 34, true);
+    createLabel(uiLibraryGroup_, L10n::Text(L"用于艺术家、专辑和曲目浏览。Subsonic API 上限为 500。", L"Used for Artists, Albums and Tracks. Subsonic API maximum is 500."), editX, 56, 450, 34, true);
     y += 106;
 
-    uiDiagnosticsGroup_ = createGroup(L"Diagnostics", x, y, w, 88);
-    uiIgnoreTlsCertificateErrorsCheck_ = createCheck(uiDiagnosticsGroup_, L"Allow self-signed HTTPS certificates", editX, 28, 360, 24, UiAction::Modified);
-    uiDebugLoggingCheck_ = createCheck(uiDiagnosticsGroup_, L"Debug logging", editX, 56, 180, 24, UiAction::Modified);
+    uiDiagnosticsGroup_ = createGroup(L10n::Text(L"诊断", L"Diagnostics"), x, y, w, 88);
+    uiIgnoreTlsCertificateErrorsCheck_ = createCheck(uiDiagnosticsGroup_, L10n::Text(L"允许自签名 HTTPS 证书", L"Allow self-signed HTTPS certificates"), editX, 28, 360, 24, UiAction::Modified);
+    uiDebugLoggingCheck_ = createCheck(uiDiagnosticsGroup_, L10n::Text(L"调试日志", L"Debug logging"), editX, 56, 180, 24, UiAction::Modified);
 
     return true;
 }
@@ -876,7 +892,8 @@ void SubsonicOptionsFrame::SaveFromControls() {
 
     if (!previousConfig.ignoreTlsCertificateErrors && config.ignoreTlsCertificateErrors) {
         MessageBoxW(host_,
-            L"TLS certificate validation is disabled. Use this only for a trusted self-signed development server.",
+            L10n::Text(L"已禁用 TLS 证书校验。仅建议在受信任的自签名开发服务器上使用。",
+                L"TLS certificate validation is disabled. Use this only for a trusted self-signed development server."),
             L"AIMP Subsonic " AIMP_SUBSONIC_VERSION,
             MB_OK | MB_ICONWARNING);
     }
@@ -884,24 +901,24 @@ void SubsonicOptionsFrame::SaveFromControls() {
         if (plugin_) {
             plugin_->ApplyConfigFromOptions(config);
         }
-        SetStatus(L"Saved");
+        SetStatus(L10n::Text(L"已保存", L"Saved"));
     } else {
-        SetStatus(L"Save failed");
+        SetStatus(L10n::Text(L"保存失败", L"Save failed"));
     }
 }
 
 void SubsonicOptionsFrame::TestConnection() {
     const SubsonicConfig config = ReadFromControls();
     if (config.serverUrl.empty() || config.username.empty() || config.password.empty()) {
-        SetStatus(L"Fill server URL, username, and password");
-        MessageBoxW(host_, L"Fill server URL, username, and password first.", L"AIMP Subsonic " AIMP_SUBSONIC_VERSION, MB_OK | MB_ICONWARNING);
+        SetStatus(L10n::Text(L"请填写服务器地址、用户名和密码", L"Fill server URL, username, and password"));
+        MessageBoxW(host_, L10n::Text(L"请先填写服务器地址、用户名和密码。", L"Fill server URL, username, and password first."), L"AIMP Subsonic " AIMP_SUBSONIC_VERSION, MB_OK | MB_ICONWARNING);
         return;
     }
 
-    SetStatus(L"Testing...");
+    SetStatus(L10n::Text(L"正在测试…", L"Testing..."));
     const bool ok = plugin_ ? plugin_->TestSubsonicConfig(config) : SubsonicClient(config).Ping();
-    SetStatus(ok ? L"Connection OK" : L"Connection failed");
-    MessageBoxW(host_, ok ? L"Subsonic ping succeeded." : L"Subsonic ping failed. Enable Debug logging for details.",
+    SetStatus(ok ? L10n::Text(L"连接成功", L"Connection OK") : L10n::Text(L"连接失败", L"Connection failed"));
+    MessageBoxW(host_, ok ? L10n::Text(L"Subsonic ping 成功。", L"Subsonic ping succeeded.") : L10n::Text(L"Subsonic ping 失败。如需要详细信息，请启用调试日志。", L"Subsonic ping failed. Enable Debug logging for details."),
         L"AIMP Subsonic " AIMP_SUBSONIC_VERSION, MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONERROR));
 }
 
@@ -936,18 +953,25 @@ void SubsonicOptionsFrame::SetStatus(const std::wstring& value) {
 }
 
 void SubsonicOptionsFrame::UpdateTheme() {
-    darkTheme_ = true;
-    backgroundColor_ = RGB(34, 34, 34);
-    textColor_ = RGB(245, 245, 245);
-    hintTextColor_ = RGB(210, 210, 210);
-    editBackgroundColor_ = RGB(45, 45, 45);
-    editTextColor_ = RGB(255, 255, 255);
-
+    darkTheme_ = IsSystemDarkMode();
+    if (darkTheme_) {
+        backgroundColor_ = RGB(34, 34, 34);
+        textColor_ = RGB(245, 245, 245);
+        hintTextColor_ = RGB(210, 210, 210);
+        editBackgroundColor_ = RGB(45, 45, 45);
+        editTextColor_ = RGB(255, 255, 255);
+    } else {
+        backgroundColor_ = RGB(255, 255, 255);
+        textColor_ = RGB(0, 0, 0);
+        hintTextColor_ = RGB(80, 80, 80);
+        editBackgroundColor_ = RGB(255, 255, 255);
+        editTextColor_ = RGB(0, 0, 0);
+    }
     DestroyThemeBrushes();
     backgroundBrush_ = CreateSolidBrush(backgroundColor_);
     editBackgroundBrush_ = CreateSolidBrush(editBackgroundColor_);
 
-    LogInfo(L"Subsonic options theme updated. Mode=dark");
+    LogInfo(L"Subsonic options theme updated. Mode=" + std::wstring(darkTheme_ ? L"dark" : L"light"));
 }
 
 void SubsonicOptionsFrame::DestroyThemeBrushes() {

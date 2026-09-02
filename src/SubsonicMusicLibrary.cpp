@@ -5,6 +5,7 @@
 #include <oleauto.h>
 
 #include "Diagnostics.h"
+#include "i18n.h"
 
 namespace {
 
@@ -38,11 +39,11 @@ const wchar_t* kTokenPlaylistPrefix = L"playlist:";
 const wchar_t* kTokenArtistPrefix = L"artist:";
 const wchar_t* kTokenAlbumPrefix = L"album:";
 
-const wchar_t* kCaptionRuPlaylists = L"\x041F\x043B\x0435\x0439\x043B\x0438\x0441\x0442\x044B";
-const wchar_t* kCaptionRuArtists = L"\x0418\x0441\x043F\x043E\x043B\x043D\x0438\x0442\x0435\x043B\x0438";
-const wchar_t* kCaptionRuAlbums = L"\x0410\x043B\x044C\x0431\x043E\x043C\x044B";
-const wchar_t* kCaptionRuFavorites = L"\x0418\x0437\x0431\x0440\x0430\x043D\x043D\x043E\x0435";
-const wchar_t* kCaptionRuTracks = L"\x0422\x0440\x0435\x043A\x0438";
+const wchar_t* kCaptionPlaylists = L10n::Text(L"播放列表", L"Playlists");
+const wchar_t* kCaptionArtists = L10n::Text(L"艺术家", L"Artists");
+const wchar_t* kCaptionAlbums = L10n::Text(L"专辑", L"Albums");
+const wchar_t* kCaptionFavorites = L10n::Text(L"收藏", L"Favorites");
+const wchar_t* kCaptionTracks = L10n::Text(L"曲目", L"Tracks");
 const wchar_t kNodePathSeparator = L'\\';
 const wchar_t* kPathPlaylists = L"Playlists";
 const wchar_t* kPathArtists = L"Artists";
@@ -1220,11 +1221,11 @@ std::vector<SubsonicMusicLibraryStorage::LibraryRow> SubsonicMusicLibraryStorage
     std::vector<LibraryRow> rows;
     const std::wstring effectiveNode = NormalizeNodePath(node);
     if (effectiveNode.empty()) {
-        rows.push_back({ ArtistsRootPath(), {}, kCaptionRuArtists, {}, {}, {}, {}, ArtistsRootPath(), {}, L"root" });
-        rows.push_back({ AlbumsRootPath(), {}, kCaptionRuAlbums, {}, {}, {}, {}, AlbumsRootPath(), {}, L"root" });
-        rows.push_back({ FavoritesRootPath(), {}, kCaptionRuFavorites, {}, {}, {}, {}, FavoritesRootPath(), {}, L"root" });
-        rows.push_back({ TracksRootPath(), {}, kCaptionRuTracks, {}, {}, {}, {}, TracksRootPath(), {}, L"root" });
-        rows.push_back({ PlaylistsRootPath(), {}, kCaptionRuPlaylists, {}, {}, {}, {}, PlaylistsRootPath(), {}, L"root" });
+        rows.push_back({ ArtistsRootPath(), {}, kCaptionArtists, {}, {}, {}, {}, ArtistsRootPath(), {}, L"root" });
+        rows.push_back({ AlbumsRootPath(), {}, kCaptionAlbums, {}, {}, {}, {}, AlbumsRootPath(), {}, L"root" });
+        rows.push_back({ FavoritesRootPath(), {}, kCaptionFavorites, {}, {}, {}, {}, FavoritesRootPath(), {}, L"root" });
+        rows.push_back({ TracksRootPath(), {}, kCaptionTracks, {}, {}, {}, {}, TracksRootPath(), {}, L"root" });
+        rows.push_back({ PlaylistsRootPath(), {}, kCaptionPlaylists, {}, {}, {}, {}, PlaylistsRootPath(), {}, L"root" });
         return rows;
     }
 
